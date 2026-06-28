@@ -205,6 +205,15 @@
     });
   }
 
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function clickMailSendFromFirstDocument() {
     const docsContainer = document.querySelector('.patient-docs');
     console.log('[Teemer Optimizer] Step 10: docsContainer found:', !!docsContainer);
@@ -531,14 +540,7 @@
     return true;
   }
 
-  function appendOrderNumberToEditor(editor, orderNum, manualSend = true, attempts = 0) {
-    const currentText = editor.value().trim();
-    
-    // Check if the template text has loaded (should contain 'XML', 'anbei', 'Hallo', or 'Patient',
-    // and should not just be empty or contain only our signature)
-    const hasTemplateText = currentText.length > 0 && 
-                            (currentText.includes('XML') || currentText.includes('anbei') || currentText.includes('Hallo') || currentText.includes('Patient'));
-
+  function writeEmailBodyToEditor(editor, patientName, xmlCode, manualSend = true) {
     function finalizeEmailSend() {
       if (manualSend) {
         console.log('[Teemer Optimizer] Manual send is enabled. Please click "Versenden" manually.');
@@ -551,29 +553,16 @@
         stopAutomation(true);
       }
     }
-    
-    if (hasTemplateText) {
-      if (!currentText.includes(orderNum)) {
-        editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
-        editor.trigger('change');
-        console.log('[Teemer Optimizer] XML order number successfully appended to template text.');
-      }
 
-      finalizeEmailSend();
-    } else {
-      if (attempts < 10) { // Max 10 attempts (5 seconds total)
-        console.log('[Teemer Optimizer] Waiting for editor template text to load... Attempt:', attempts + 1);
-        setTimeout(() => {
-          appendOrderNumberToEditor(editor, orderNum, manualSend, attempts + 1);
-        }, 500);
-      } else {
-        console.log('[Teemer Optimizer] Timeout waiting for template text. Appending order number directly.');
-        editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
-        editor.trigger('change');
+    const safeName = escapeHtml(patientName || '');
+    const safeXml = escapeHtml(xmlCode || '');
+    const mailHtml = `Hallo,<br/>anbei die XML unseres Patienten ${safeName}<br/><br/>${safeXml}<br/><br/>Mit freundlichen Gr\u00fc\u00dfen<br/>Praxis Dr. Karst`;
 
-        finalizeEmailSend();
-      }
-    }
+    editor.value(mailHtml);
+    editor.trigger('change');
+    console.log('[Teemer Optimizer] Custom XML email text written directly to editor.');
+
+    finalizeEmailSend();
   }
 
   // --- STATE CONTROLLER / ENGINE ---
@@ -1102,9 +1091,8 @@
       case 110:
         {
           const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-          const textElementSelect = document.querySelector('select[name="textElement"]');
 
-          if (!favoritesSelect || !textElementSelect) {
+          if (!favoritesSelect) {
             const waitAttempts = parseInt(sessionStorage.getItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS) || '0', 10) + 1;
             sessionStorage.setItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS, String(waitAttempts));
 
@@ -1156,43 +1144,18 @@
 
       case 111:
         {
-          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-          const textElementSelect = document.querySelector('select[name="textElement"]');
-          if (!favoritesSelect || !textElementSelect) break;
-
-          updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
-
-          // 11b. Check if the editor already contains the template text.
-          // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
+          updateStatusBar(11, 11, 'Schritt 11b: E-Mail-Editor vorbereiten...');
           const $editor = window.jQuery('textarea[name="wrapper:message"]');
           const editor = $editor.data('kendoEditor');
-          const editorText = editor ? editor.value().trim() : '';
-          const hasTemplateText = editorText.length > 0 && 
-                                  (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
-
-          if (!hasTemplateText) {
-            // Check if text block choice has "XML" selected.
-            const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
-            if (!textElementText.includes('XML')) {
-              console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
-              const selected = selectDropdownOption(textElementSelect, 'XML');
-              if (!selected) break;
-              break;
-            }
-          }
 
           if (!runStepCheck(
             111,
-            'XML Textbaustein geladen',
-            () => {
-              const textElementText = getSelectedOptionText(textElementSelect);
-              const editorTextNow = editor ? editor.value().trim() : '';
-              const templateLoaded = editorTextNow.length > 0 &&
-                (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
-              return textElementText.includes('XML') || templateLoaded;
-            },
-            'XML Textbaustein wurde nicht geladen.'
+            'E-Mail-Editor verf\u00fcgbar',
+            () => !!editor,
+            'E-Mail-Editor wurde noch nicht initialisiert.'
           )) {
+            sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+            setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
             break;
           }
 
@@ -1247,9 +1210,12 @@
             const $editor = window.jQuery('textarea[name="wrapper:message"]');
             const editor = $editor.data('kendoEditor');
             if (editor) {
-              appendOrderNumberToEditor(editor, orderNum, isManualEmailSend);
+              writeEmailBodyToEditor(editor, patientName, orderNum, isManualEmailSend);
             } else {
               console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
+              emailStarted = false;
+              sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+              setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
             }
           }, 1000); // 1000ms delay to let Wicket process favorites/text block AJAX updates
         }
