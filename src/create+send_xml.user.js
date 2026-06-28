@@ -212,24 +212,8 @@
   }
 
   function isLabNameMatch(elText, selectedLabName) {
-    const cleanEl = elText.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanSelected = selectedLabName.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (cleanEl.length < 3) return false;
-    
-    // Check if one contains the other, or if they share a significant unique word
-    if (cleanSelected.includes(cleanEl) || cleanEl.includes(cleanSelected)) {
-      return true;
-    }
-    
-    // Also check if any word from selectedLabName (longer than 3 chars) is in elText
-    const words = selectedLabName.split(/[\s/]+/);
-    for (const word of words) {
-      const cleanWord = word.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (cleanWord.length >= 4 && elText.toLowerCase().includes(cleanWord)) {
-        return true;
-      }
-    }
-    return false;
+    if (!elText || !selectedLabName) return false;
+    return elText.toLowerCase().trim() === selectedLabName.toLowerCase().trim();
   }
 
   function isDialogVisible(dialogTitle) {
@@ -246,16 +230,10 @@
   function selectDropdownOption(selectEl, textToMatch) {
     if (!selectEl) return false;
     
-    // Find option index natively using case-insensitive and fuzzy matching
+    // Find option index using exact name matching
     let foundIndex = -1;
     for (let i = 0; i < selectEl.options.length; i++) {
-      const optionText = selectEl.options[i].text.toLowerCase().trim();
-      const search = textToMatch.toLowerCase().trim();
-      if (optionText.includes(search) || search.includes(optionText)) {
-        foundIndex = i;
-        break;
-      }
-      if (typeof isLabNameMatch === 'function' && isLabNameMatch(selectEl.options[i].text, textToMatch)) {
+      if (isLabNameMatch(selectEl.options[i].text, textToMatch)) {
         foundIndex = i;
         break;
       }
