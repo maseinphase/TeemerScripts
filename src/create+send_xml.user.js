@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.9
+// @version      1.0.10
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -245,49 +245,64 @@
 
   function selectDropdownOption(selectEl, textToMatch) {
     if (!selectEl) return false;
+    
+    // Find option index natively using case-insensitive and fuzzy matching
     let foundIndex = -1;
     for (let i = 0; i < selectEl.options.length; i++) {
-      if (selectEl.options[i].text.includes(textToMatch)) {
+      const optionText = selectEl.options[i].text.toLowerCase().trim();
+      const search = textToMatch.toLowerCase().trim();
+      if (optionText.includes(search) || search.includes(optionText)) {
+        foundIndex = i;
+        break;
+      }
+      if (typeof isLabNameMatch === 'function' && isLabNameMatch(selectEl.options[i].text, textToMatch)) {
         foundIndex = i;
         break;
       }
     }
-    if (foundIndex === -1) return false;
+    if (foundIndex === -1) {
+      console.warn(`[Teemer Optimizer] Option matching "${textToMatch}" not found.`);
+      return false;
+    }
 
-    // Check if jQuery UI selectmenu is active for this element
+    const optionVal = selectEl.options[foundIndex].value;
+    selectEl.selectedIndex = foundIndex;
     const selectId = selectEl.id;
-    if (selectId) {
-      const buttonEl = document.getElementById(`${selectId}-button`);
-      const menuEl = document.getElementById(`${selectId}-menu`);
-      
-      // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI hasn't initialized it yet,
-      // return false to wait for initialization in the next execution cycle
-      if (selectEl.classList.contains('pxs-dropdownchoice') && !buttonEl) {
-        console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on #${selectId}...`);
-        return false;
-      }
 
-      if (buttonEl && menuEl) {
-        console.log(`[Teemer Optimizer] jQuery UI selectmenu detected for #${selectId}. Simulating click.`);
-        // Click the selectmenu button to expand the menu in the DOM
-        buttonEl.click();
-        
-        // Find matching item in the expanded menu
-        const items = Array.from(menuEl.querySelectorAll('.ui-menu-item'));
-        const targetItem = items.find(li => li.textContent.includes(textToMatch));
-        if (targetItem) {
-          const div = targetItem.querySelector('div') || targetItem;
-          div.click();
-          console.log(`[Teemer Optimizer] Programmatic selectmenu click succeeded for option: ${textToMatch}`);
-          return true;
+    // Try jQuery UI selectmenu widget direct update and callback execution
+    if (window.jQuery && selectId && typeof window.jQuery.fn.selectmenu === 'function') {
+      try {
+        const $select = window.jQuery(selectEl);
+        const widgetInstance = $select.selectmenu('instance');
+        if (widgetInstance) {
+          console.log(`[Teemer Optimizer] Updating JQuery UI selectmenu #${selectId} programmatically to: ${textToMatch}`);
+          $select.val(optionVal);
+          $select.selectmenu('refresh');
+          
+          // Retrieve and execute the change callback registered by Wicket
+          const changeCallback = $select.selectmenu('option', 'change');
+          if (typeof changeCallback === 'function') {
+            const ui = {
+              item: {
+                value: optionVal,
+                index: foundIndex,
+                element: window.jQuery(selectEl.options[foundIndex]),
+                label: selectEl.options[foundIndex].text
+              }
+            };
+            changeCallback.call(selectEl, { target: selectEl, type: 'selectmenuchange' }, ui);
+            console.log(`[Teemer Optimizer] Executed Wicket selectmenu change callback for #${selectId}`);
+            return true;
+          }
         }
+      } catch (e) {
+        console.warn(`[Teemer Optimizer] Direct selectmenu update failed for #${selectId}, falling back to native event.`, e);
       }
     }
 
-    // Fallback: update natively if selectmenu is not present or click failed
-    console.log(`[Teemer Optimizer] Falling back to native dropdown update for #${selectId || 'unknown'}`);
-    selectEl.selectedIndex = foundIndex;
-    triggerEvents(selectEl, ['change']);
+    // Fallback: update natively if selectmenu is not present or direct execution failed
+    console.log(`[Teemer Optimizer] Falling back to native event trigger for #${selectId || 'unknown'}`);
+    triggerEvents(selectEl, ['change', 'input']);
     return true;
   }
 
@@ -672,14 +687,26 @@
 
         if (favoritesSelect && textElementSelect) {
           if (emailStarted) break;
-          emailStarted = true;
           updateStatusBar(11, 11, 'Schritt 11: E-Mail konfigurieren und absenden...');
 
-          // 11a. Select lab in favorites dropdown
-          selectDropdownOption(favoritesSelect, labName);
+          // 11a. Check if favorites choice has the lab selected.
+          const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
+          if (!favText.includes(labName)) {
+            console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
+            selectDropdownOption(favoritesSelect, labName);
+            break; // Wait for Wicket AJAX to refresh the modal in the next loop cycle
+          }
 
-          // 11b. Select XML text block
-          selectDropdownOption(textElementSelect, 'XML');
+          // 11b. Check if text block choice has "XML" selected.
+          const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
+          if (!textElementText.includes('XML')) {
+            console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
+            selectDropdownOption(textElementSelect, 'XML');
+            break; // Wait for Wicket AJAX to load the text template
+          }
+
+          // Mark email processing as started so we don't repeat the configuration logic
+          emailStarted = true;
 
           // Debug Mode / Test Recipient Override
           // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
