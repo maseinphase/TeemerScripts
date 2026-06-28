@@ -1065,10 +1065,18 @@
         break;
 
       case 110:
-        const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-        const textElementSelect = document.querySelector('select[name="textElement"]');
+        {
+          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+          const textElementSelect = document.querySelector('select[name="textElement"]');
 
-        if (favoritesSelect && textElementSelect) {
+          if (!favoritesSelect || !textElementSelect) {
+            updateStatusBar(11, 11, 'Schritt 11a: Warte auf E-Mail-Modal...');
+            // Keep the timeout watchdog alive while Wicket finishes opening/rendering the dialog.
+            sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+            setTimeout(executeStep, 250);
+            break;
+          }
+
           updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
 
           // 11a. Check if favorites choice has the lab selected.
