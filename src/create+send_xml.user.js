@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.10
+// @version      1.0.11
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -37,7 +37,10 @@
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
+  const DOM_SETTLE_DELAY_MS = 120;
   let emailStarted = false;
+  let scheduledTickHandle = null;
+  let domObserver = null;
 
   // --- STYLING ---
   function injectStyles() {
@@ -229,6 +232,16 @@
 
   function selectDropdownOption(selectEl, textToMatch) {
     if (!selectEl) return false;
+
+    const optionsSnapshot = Array.from(selectEl.options || []).map((opt, idx) => {
+      return `${idx}:${opt.text}`;
+    });
+    const beforeIndex = selectEl.selectedIndex;
+    const beforeText = beforeIndex >= 0 && selectEl.options[beforeIndex]
+      ? selectEl.options[beforeIndex].text
+      : '(none)';
+    console.log(`[Teemer Optimizer] Select debug -> target: "${textToMatch}", before selected: "${beforeText}"`);
+    console.log('[Teemer Optimizer] Select debug -> available options:', optionsSnapshot);
     
     // Find option index using exact name matching
     let foundIndex = -1;
@@ -246,6 +259,7 @@
     const optionVal = selectEl.options[foundIndex].value;
     selectEl.selectedIndex = foundIndex;
     const selectId = selectEl.id;
+    console.log(`[Teemer Optimizer] Select debug -> matched option index: ${foundIndex}, text: "${selectEl.options[foundIndex].text}", value: "${optionVal}"`);
 
     // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI selectmenu is not yet initialized on this element,
     // return false to wait for Wicket to initialize it.
@@ -284,6 +298,11 @@
             };
             changeCallback.call(selectEl, { target: selectEl, type: 'selectmenuchange' }, ui);
             console.log(`[Teemer Optimizer] Executed Wicket selectmenu change callback for #${selectId}`);
+            const afterIndex = selectEl.selectedIndex;
+            const afterText = afterIndex >= 0 && selectEl.options[afterIndex]
+              ? selectEl.options[afterIndex].text
+              : '(none)';
+            console.log(`[Teemer Optimizer] Select debug -> after selected (selectmenu path): "${afterText}"`);
             return true;
           }
         }
@@ -295,6 +314,11 @@
     // Fallback: update natively if selectmenu is not present or direct execution failed
     console.log(`[Teemer Optimizer] Falling back to native event trigger for #${selectId || 'unknown'}`);
     triggerEvents(selectEl, ['change', 'input']);
+    const afterIndex = selectEl.selectedIndex;
+    const afterText = afterIndex >= 0 && selectEl.options[afterIndex]
+      ? selectEl.options[afterIndex].text
+      : '(none)';
+    console.log(`[Teemer Optimizer] Select debug -> after selected (native path): "${afterText}"`);
     return true;
   }
 
@@ -361,8 +385,9 @@
     }
 
     const isPaused = sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true';
+    const isActive = sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true';
     if (nextBtn) {
-      if (isPaused && step < 11) {
+      if (isPaused && isActive) {
         nextBtn.style.display = 'block';
         if (cancelBtn) {
           cancelBtn.style.width = 'auto';
@@ -376,6 +401,26 @@
         }
       }
     }
+  }
+
+  function getDisplayStep(step) {
+    if (step === 20 || step === 21) return 2;
+    if (step === 50 || step === 51) return 5;
+    if (step >= 110 && step <= 112) return 11;
+    return step;
+  }
+
+  function getDebugStepLabel(step) {
+    const stepLabels = {
+      20: '2d',
+      21: '2c',
+      50: '5a',
+      51: '5b',
+      110: '11a',
+      111: '11b',
+      112: '11c-11e'
+    };
+    return stepLabels[step] || String(step);
   }
 
   function stopAutomation(success = false, errorMsg = '') {
@@ -413,10 +458,10 @@
     console.log(`[Teemer Optimizer] Advancing to Step ${nextStep}`);
 
     const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
-    const majorSteps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-    if (isDebugMode && majorSteps.includes(nextStep)) {
+    if (isDebugMode) {
       sessionStorage.setItem(STATE_KEYS.PAUSED, 'true');
-      updateStatusBar(nextStep - 1, 11, `Bereit für Schritt ${nextStep}.`);
+      const displayStep = getDisplayStep(nextStep);
+      updateStatusBar(Math.max(0, displayStep - 1), 11, `Bereit für Schritt ${getDebugStepLabel(nextStep)}.`);
     } else {
       sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
       setTimeout(executeStep, 300);
@@ -487,7 +532,13 @@
             triggerEvents(descTextarea, ['input', 'change']);
           }
 
-          // 2c. Click "Erstellen" button in modal
+          advanceStep(21);
+        }
+        break;
+
+      case 21:
+        updateStatusBar(2, 11, 'Schritt 2c: "Erstellen" im Plan-Modal klicken...');
+        if (isDialogVisible('Plan beauftragen')) {
           const created = clickDialogButton('Plan beauftragen', 'Erstellen');
           if (created) {
             advanceStep(20); // Intermediate step: wait for modal to close and click "Zur Planung"
@@ -537,12 +588,12 @@
         const createLabBtn = findElementByText('.nubo-button', 'Laborauftrag erstellen');
         if (createLabBtn) {
           createLabBtn.click();
-          advanceStep(5);
+          advanceStep(50);
         }
         break;
 
-      case 5:
-        updateStatusBar(5, 11, 'Schritt 5: Labor auswählen...');
+      case 50:
+        updateStatusBar(5, 11, 'Schritt 5a: Labor auswählen...');
         
         // Find and highlight strictly "Labor" label in the dialog (ignoring Laborauftragsart)
         const modalLabels = Array.from(document.querySelectorAll('.ui-dialog label'));
@@ -574,11 +625,17 @@
         if (labSelect) {
           const selected = selectDropdownOption(labSelect, labName);
           if (selected) {
-            // Click "Erstellen" button in modal
-            const created = clickDialogButton('Laborauftrag erstellen', 'Erstellen');
-            if (created) {
-              advanceStep(6);
-            }
+            advanceStep(51);
+          }
+        }
+        break;
+
+      case 51:
+        updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
+        if (isDialogVisible('Laborauftrag erstellen')) {
+          const created = clickDialogButton('Laborauftrag erstellen', 'Erstellen');
+          if (created) {
+            advanceStep(6);
           }
         }
         break;
@@ -686,27 +743,38 @@
             if (mailBtn) {
               console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button.');
               mailBtn.click();
-              advanceStep(11);
+              advanceStep(110);
             }
           }
         }
         break;
 
-      case 11:
+      case 110:
         const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
         const textElementSelect = document.querySelector('select[name="textElement"]');
 
         if (favoritesSelect && textElementSelect) {
-          if (emailStarted) break;
-          updateStatusBar(11, 11, 'Schritt 11: E-Mail konfigurieren und absenden...');
+          updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
 
           // 11a. Check if favorites choice has the lab selected.
           const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
           if (!favText.includes(labName)) {
             console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
-            selectDropdownOption(favoritesSelect, labName);
-            break; // Wait for Wicket AJAX to refresh the modal in the next loop cycle
+            const selected = selectDropdownOption(favoritesSelect, labName);
+            if (!selected) break;
           }
+
+          advanceStep(111);
+        }
+        break;
+
+      case 111:
+        {
+          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+          const textElementSelect = document.querySelector('select[name="textElement"]');
+          if (!favoritesSelect || !textElementSelect) break;
+
+          updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
 
           // 11b. Check if the editor already contains the template text.
           // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
@@ -721,10 +789,19 @@
             const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
             if (!textElementText.includes('XML')) {
               console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
-              selectDropdownOption(textElementSelect, 'XML');
-              break; // Wait for Wicket AJAX to load the text template
+              const selected = selectDropdownOption(textElementSelect, 'XML');
+              if (!selected) break;
             }
           }
+
+          advanceStep(112);
+        }
+        break;
+
+      case 112:
+        {
+          if (emailStarted) break;
+          updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
 
           // Mark email processing as started so we don't repeat the configuration logic
           emailStarted = true;
@@ -1019,12 +1096,51 @@
     }
   }
 
+  function runAutomationTick() {
+    injectXmlButton();
+    if (sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true') {
+      ensureStatusBarIsRestored();
+      executeStep();
+    }
+  }
+
+  function scheduleAutomationTick(delay = DOM_SETTLE_DELAY_MS) {
+    if (scheduledTickHandle) {
+      clearTimeout(scheduledTickHandle);
+    }
+    scheduledTickHandle = setTimeout(() => {
+      scheduledTickHandle = null;
+      runAutomationTick();
+    }, delay);
+  }
+
+  function startDomObserver() {
+    if (domObserver || !document.body) return;
+
+    domObserver = new MutationObserver((mutationList) => {
+      if (!mutationList || mutationList.length === 0) return;
+
+      for (const mutation of mutationList) {
+        if (mutation.type === 'childList' && (mutation.addedNodes.length || mutation.removedNodes.length)) {
+          scheduleAutomationTick();
+          return;
+        }
+      }
+    });
+
+    domObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   // --- INITIALIZATION ---
 
   function init() {
     console.log('[Teemer Optimizer] Page initialized. URL:', window.location.href);
     injectStyles();
     createModal();
+    startDomObserver();
 
     if (sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true') {
       console.log('[Teemer Optimizer] Active automation session detected during init.');
@@ -1032,15 +1148,7 @@
       executeStep();
     }
 
-    injectXmlButton();
-
-    setInterval(() => {
-      injectXmlButton();
-      if (sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true') {
-        ensureStatusBarIsRestored();
-        executeStep();
-      }
-    }, 500);
+    runAutomationTick();
   }
 
   if (document.readyState === 'loading') {
