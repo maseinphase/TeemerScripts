@@ -32,6 +32,7 @@
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
     DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override',
+    LAB_CONFIRMED_NAME: 'tm_xml_lab_confirmed_name',
     LAST_CHECK: 'tm_xml_last_check',
     LAST_ERROR: 'tm_xml_last_error'
   };
@@ -634,6 +635,7 @@
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
     sessionStorage.removeItem(STATE_KEYS.DEV_EMAIL_OVERRIDE);
+    sessionStorage.removeItem(STATE_KEYS.LAB_CONFIRMED_NAME);
     sessionStorage.removeItem(STATE_KEYS.LAST_CHECK);
     sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
     clearRetryState();
@@ -865,16 +867,18 @@
         updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
         if (isDialogVisible('Laborauftrag erstellen')) {
           const selectedLabEl = document.querySelector('select[name*="labChoice"]');
+          const confirmedLabName = sessionStorage.getItem(STATE_KEYS.LAB_CONFIRMED_NAME) || '';
+          const selectedText = selectedLabEl ? getSelectedOptionText(selectedLabEl) : '';
+          const visibleText = selectedLabEl ? getSelectmenuVisibleText(selectedLabEl) : '';
+          console.log(`[Teemer Optimizer] Step 5b debug -> confirmed="${confirmedLabName || '-'}", hidden="${selectedText || '-'}", visible="${visibleText || '-'}"`);
           if (!runStepCheck(
             51,
             'Labor vor Erstellen korrekt',
             () => {
-              if (!selectedLabEl) return false;
-              const selectedText = getSelectedOptionText(selectedLabEl);
-              const visibleText = getSelectmenuVisibleText(selectedLabEl);
-              const hiddenMatches = isLabNameMatch(selectedText, labName);
-              const visibleMatches = !visibleText || isLabNameMatch(visibleText, labName);
-              return hiddenMatches && visibleMatches;
+              if (!confirmedLabName) return false;
+              const hiddenMatches = !selectedText || isLabNameMatch(selectedText, confirmedLabName);
+              const visibleMatches = !visibleText || isLabNameMatch(visibleText, confirmedLabName);
+              return isLabNameMatch(confirmedLabName, labName) && hiddenMatches && visibleMatches;
             },
             `Labor ist vor Erstellen nicht korrekt gesetzt (erwartet "${labName}").`,
             { onFailStep: 50 }
@@ -1002,7 +1006,6 @@
             });
             console.log('[Teemer Optimizer] Step 10: mailBtn found:', !!mailBtn);
             if (mailBtn) {
-              console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button.');
               mailBtn.click();
               advanceStep(110);
             }
@@ -1023,7 +1026,6 @@
             console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
             const selected = selectDropdownOption(favoritesSelect, labName);
             if (!selected) break;
-            break;
           }
 
           if (!runStepCheck(
@@ -1040,107 +1042,103 @@
         break;
 
       case 111:
-        {
-          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-          const textElementSelect = document.querySelector('select[name="textElement"]');
-          if (!favoritesSelect || !textElementSelect) break;
+        const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+        const textElementSelect = document.querySelector('select[name="textElement"]');
+        if (!favoritesSelect || !textElementSelect) break;
 
-          updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
+        updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
 
-          // 11b. Check if the editor already contains the template text.
-          // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
-          const $editor = window.jQuery('textarea[name="wrapper:message"]');
-          const editor = $editor.data('kendoEditor');
-          const editorText = editor ? editor.value().trim() : '';
-          const hasTemplateText = editorText.length > 0 && 
-                                  (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
+        // 11b. Check if the editor already contains the template text.
+        // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
+        const $editor = window.jQuery('textarea[name="wrapper:message"]');
+        const editor = $editor.data('kendoEditor');
+        const editorText = editor ? editor.value().trim() : '';
+        const hasTemplateText = editorText.length > 0 && 
+                                (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
 
-          if (!hasTemplateText) {
-            // Check if text block choice has "XML" selected.
-            const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
-            if (!textElementText.includes('XML')) {
-              console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
-              const selected = selectDropdownOption(textElementSelect, 'XML');
-              if (!selected) break;
-              break;
-            }
-          }
-
-          if (!runStepCheck(
-            111,
-            'XML Textbaustein geladen',
-            () => {
-              const textElementText = getSelectedOptionText(textElementSelect);
-              const editorTextNow = editor ? editor.value().trim() : '';
-              const templateLoaded = editorTextNow.length > 0 &&
-                (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
-              return textElementText.includes('XML') || templateLoaded;
-            },
-            'XML Textbaustein wurde nicht geladen.'
-          )) {
+        if (!hasTemplateText) {
+          // Check if text block choice has "XML" selected.
+          const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
+          if (!textElementText.includes('XML')) {
+            console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
+            const selected = selectDropdownOption(textElementSelect, 'XML');
+            if (!selected) break;
             break;
           }
-
-          advanceStep(112);
         }
+
+        if (!runStepCheck(
+          111,
+          'XML Textbaustein geladen',
+          () => {
+            const textElementText = getSelectedOptionText(textElementSelect);
+            const editorTextNow = editor ? editor.value().trim() : '';
+            const templateLoaded = editorTextNow.length > 0 &&
+              (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
+            return textElementText.includes('XML') || templateLoaded;
+          },
+          'XML Textbaustein wurde nicht geladen.'
+        )) {
+          break;
+        }
+
+        advanceStep(112);
         break;
 
       case 112:
-        {
-          if (emailStarted) break;
-          updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
+        if (emailStarted) break;
+        updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
 
-          const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
-          if (!runStepCheck(
-            112,
-            'Auftragsnummer vorhanden',
-            () => !!orderNum && orderNum.trim().length > 0,
-            'Keine Auftragsnummer vorhanden. E-Mail wird nicht versendet.'
-          )) {
-            break;
+        const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
+        if (!runStepCheck(
+          112,
+          'Auftragsnummer vorhanden',
+          () => !!orderNum && orderNum.trim().length > 0,
+          'Keine Auftragsnummer vorhanden. E-Mail wird nicht versendet.'
+        )) {
+          break;
+        }
+
+        // Mark email processing as started so we don't repeat the configuration logic
+        emailStarted = true;
+
+        // Debug Mode / Test Recipient Override
+        // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
+        const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
+        setTimeout(() => {
+          if (isDevEmailOverride) {
+            const receiverInput = document.querySelector('input[name="receiver"]');
+            if (receiverInput) {
+              receiverInput.value = 'm-seeland@gmx.net';
+              triggerEvents(receiverInput, ['input', 'change']);
+              console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
+            }
           }
 
-          // Mark email processing as started so we don't repeat the configuration logic
-          emailStarted = true;
-
-          // Debug Mode / Test Recipient Override
-          // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
-          const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
-          setTimeout(() => {
-            if (isDevEmailOverride) {
-              const receiverInput = document.querySelector('input[name="receiver"]');
-              if (receiverInput) {
-                receiverInput.value = 'm-seeland@gmx.net';
-                triggerEvents(receiverInput, ['input', 'change']);
-                console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
+          // 11c. Programmatically clear "Anamnese.pdf" from Kendo MultiSelect
+          const $attachments = window.jQuery('select[name="attachments"]');
+          const multiSelect = $attachments.data('kendoMultiSelect');
+          if (multiSelect) {
+            const dataItems = multiSelect.dataItems();
+            const valuesToKeep = [];
+            for (let i = 0; i < dataItems.length; i++) {
+              if (dataItems[i].externalFileName !== 'Anamnese.pdf') {
+                valuesToKeep.push(dataItems[i].businessKey);
               }
             }
+            multiSelect.value(valuesToKeep);
+            multiSelect.trigger('change');
+          }
 
-            // 11c. Programmatically clear "Anamnese.pdf" from Kendo MultiSelect
-            const $attachments = window.jQuery('select[name="attachments"]');
-            const multiSelect = $attachments.data('kendoMultiSelect');
-            if (multiSelect) {
-              const dataItems = multiSelect.dataItems();
-              const valuesToKeep = [];
-              for (let i = 0; i < dataItems.length; i++) {
-                if (dataItems[i].externalFileName !== 'Anamnese.pdf') {
-                  valuesToKeep.push(dataItems[i].businessKey);
-                }
-              }
-              multiSelect.value(valuesToKeep);
-              multiSelect.trigger('change');
-            }
-
-            // 11d. Insert order number in Kendo Editor after template text loads
-            const $editor = window.jQuery('textarea[name="wrapper:message"]');
-            const editor = $editor.data('kendoEditor');
-            if (editor) {
-              appendOrderNumberToEditor(editor, orderNum);
-            } else {
-              console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
-            }
-          }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
-        }
+          // 11d. Insert order number in Kendo Editor after template text loads
+          const $editor = window.jQuery('textarea[name="wrapper:message"]');
+          const editor = $editor.data('kendoEditor');
+          if (editor) {
+            appendOrderNumberToEditor(editor, orderNum);
+          } else {
+            console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
+          }
+        }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
         break;
     }
   }
