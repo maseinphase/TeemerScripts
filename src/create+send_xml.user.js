@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.8
+// @version      1.0.9
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -254,17 +254,29 @@
     }
     if (foundIndex !== -1) {
       const optionVal = selectEl.options[foundIndex].value;
+      selectEl.selectedIndex = foundIndex;
+
       if (window.jQuery && typeof window.jQuery.fn.selectmenu === 'function') {
         const $select = window.jQuery(selectEl);
         $select.val(optionVal);
         try {
           $select.selectmenu('refresh');
+          // Wicket binds directly to jQuery UI selectmenu options change events.
+          // We must trigger "selectmenuchange" event with jQuery UI's expected ui.item payload.
+          const uiItem = {
+            item: {
+              value: optionVal,
+              index: foundIndex,
+              element: window.jQuery(selectEl.options[foundIndex]),
+              label: selectEl.options[foundIndex].text
+            }
+          };
+          $select.trigger('selectmenuchange', uiItem);
         } catch (e) {
-          console.warn('[Teemer Optimizer] jQuery UI selectmenu refresh failed, falling back to native events.', e);
+          console.warn('[Teemer Optimizer] jQuery UI selectmenu refresh failed, falling back to native.', e);
+          triggerEvents(selectEl, ['change']);
         }
-        $select.trigger('change');
       } else {
-        selectEl.selectedIndex = foundIndex;
         triggerEvents(selectEl, ['change']);
       }
       return true;
