@@ -269,6 +269,20 @@
     selectEl.selectedIndex = foundIndex;
     const selectId = selectEl.id;
 
+    // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI selectmenu is not yet initialized on this element,
+    // return false to wait for Wicket to initialize it.
+    if (window.jQuery && selectId && selectEl.classList.contains('pxs-dropdownchoice')) {
+      try {
+        const $select = window.jQuery(selectEl);
+        if (!$select.selectmenu('instance')) {
+          console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on #${selectId}...`);
+          return false;
+        }
+      } catch (e) {
+        // Ignore and proceed
+      }
+    }
+
     // Try jQuery UI selectmenu widget direct update and callback execution
     if (window.jQuery && selectId && typeof window.jQuery.fn.selectmenu === 'function') {
       try {
