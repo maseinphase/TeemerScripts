@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.5
+// @version      1.0.6
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
-// @match        http://localhost:9443/praxissteuerung/wicket/*
-// @match        http://127.0.0.1:9443/praxissteuerung/wicket/*
-// @match        http://localhost:*/praxissteuerung/wicket/*
-// @match        http://127.0.0.1:*/praxissteuerung/wicket/*
+// @match        http://localhost:9443/praxissteuerung/*
+// @match        http://127.0.0.1:9443/praxissteuerung/*
+// @match        http://localhost:*/praxissteuerung/*
+// @match        http://127.0.0.1:*/praxissteuerung/*
 // @updateURL    https://raw.githubusercontent.com/maseinphase/TeemerScripts/main/src/create+send_xml.user.js
 // @downloadURL  https://raw.githubusercontent.com/maseinphase/TeemerScripts/main/src/create+send_xml.user.js
 // @grant        none
@@ -204,6 +204,27 @@
           button.click();
           return true;
         }
+      }
+    }
+    return false;
+  }
+
+  function isLabNameMatch(elText, selectedLabName) {
+    const cleanEl = elText.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanSelected = selectedLabName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanEl.length < 3) return false;
+    
+    // Check if one contains the other, or if they share a significant unique word
+    if (cleanSelected.includes(cleanEl) || cleanEl.includes(cleanSelected)) {
+      return true;
+    }
+    
+    // Also check if any word from selectedLabName (longer than 3 chars) is in elText
+    const words = selectedLabName.split(/[\s/]+/);
+    for (const word of words) {
+      const cleanWord = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanWord.length >= 4 && elText.toLowerCase().includes(cleanWord)) {
+        return true;
       }
     }
     return false;
@@ -439,12 +460,29 @@
 
       case 6:
         updateStatusBar(6, 11, 'Schritt 6: Erstellten Laborauftrag öffnen...');
-        // Wait for labor modal to close and find the created lab order link in the details widget.
-        const labOrderLink = Array.from(document.querySelectorAll('a, .nubo-button, td, div.workflow-item, span')).find(el => {
-          const text = el.textContent.trim();
-          if (text.includes('Laborauftrag erstellen') || el.closest('.ui-dialog')) return false;
-          return text.includes(labName) && (el.tagName === 'A' || el.closest('a'));
-        });
+        
+        let labOrderLink = null;
+        
+        // 1. Try to find the link in the sibling container of the "Laborauftrag erstellen" button
+        const createBtn = findElementByText('.nubo-button', 'Laborauftrag erstellen');
+        if (createBtn) {
+          const sibling = createBtn.nextElementSibling;
+          if (sibling) {
+            // Find any anchor tag that has text (represents the created lab order)
+            labOrderLink = Array.from(sibling.querySelectorAll('a')).find(a => {
+              return a.textContent.trim().length > 0;
+            });
+          }
+        }
+        
+        // 2. Fallback to fuzzy lab name matching in the whole document
+        if (!labOrderLink) {
+          labOrderLink = Array.from(document.querySelectorAll('a, .nubo-button, td, div.workflow-item, span')).find(el => {
+            const text = el.textContent.trim();
+            if (text.includes('Laborauftrag erstellen') || el.closest('.ui-dialog')) return false;
+            return isLabNameMatch(text, labName) && (el.tagName === 'A' || el.closest('a'));
+          });
+        }
 
         if (labOrderLink) {
           const clickTarget = labOrderLink.tagName === 'A' ? labOrderLink : labOrderLink.closest('a');
@@ -815,14 +853,37 @@
     }
   }
 
+  function ensureStatusBarIsRestored() {
+    if (sessionStorage.getItem(STATE_KEYS.ACTIVE) !== 'true') return;
+    
+    let statusBar = document.getElementById(STATUS_BAR_ID);
+    if (!statusBar) {
+      console.log('[Teemer Optimizer] Status bar element missing. Recreating...');
+      createStatusBar();
+      statusBar = document.getElementById(STATUS_BAR_ID);
+      if (statusBar) {
+        const step = parseInt(sessionStorage.getItem(STATE_KEYS.STEP) || '1', 10);
+        const isPaused = sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true';
+        console.log(`[Teemer Optimizer] Restored status bar. Step: ${step}, Paused: ${isPaused}`);
+        if (isPaused) {
+          updateStatusBar(step - 1, 11, `Bereit für Schritt ${step}.`);
+        } else {
+          updateStatusBar(step - 1, 11, 'Warte auf nächsten Schritt...');
+        }
+      }
+    }
+  }
+
   // --- INITIALIZATION ---
 
   function init() {
+    console.log('[Teemer Optimizer] Page initialized. URL:', window.location.href);
     injectStyles();
     createModal();
 
     if (sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true') {
-      createStatusBar();
+      console.log('[Teemer Optimizer] Active automation session detected during init.');
+      ensureStatusBarIsRestored();
       executeStep();
     }
 
@@ -831,6 +892,7 @@
     setInterval(() => {
       injectXmlButton();
       if (sessionStorage.getItem(STATE_KEYS.ACTIVE) === 'true') {
+        ensureStatusBarIsRestored();
         executeStep();
       }
     }, 500);
