@@ -23,8 +23,9 @@ Current scripts include:
   8. Extracts the generated **XML Order Number** (*Auftragsnummer*) and returns to the treatment dashboard.
   9. Activates the PDF document filter.
   10. Triggers file email transfer for the primary document.
-  11. Autoselects the lab in favorites, selects the `"XML"` text block, removes old PDF attachments, appends the order number inside the rich text editor, and sends the email.
-* **Safe Mode Protection**: Includes a checkbox (enabled by default) that redirects final emails to the dev email instead of the laboratory during testing.
+  11. Opens the mail modal, selects the lab in favorites, removes old PDF attachments, sets subject to `"XML"`, writes the custom email text directly into the editor (including patient name + XML code), and optionally sends automatically.
+* **Manual Send Toggle**: Includes checkbox **"E-Mail manuell absenden"** (default: enabled). Enabled = user clicks **Versenden** manually; disabled = script sends automatically.
+* **Stability Guards for Non-Debug Mode**: Includes execution throttling, controlled retries, and modal re-open attempts to avoid timeout loops.
 * **Sleek Progress Dashboard**: Renders a premium status overlay showing real-time automation progress (e.g. `Step 5 of 11: Labor auswählen...`) with a **Cancel** safety button.
 
 WARNING: Changes to the Teemer UI may break the script at any time. The script is designed to be resilient, but it may require updates if the underlying HTML structure changes.
