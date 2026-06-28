@@ -841,6 +841,7 @@
         if (labSelect) {
           const selected = selectDropdownOption(labSelect, labName);
           if (selected) {
+            sessionStorage.setItem(STATE_KEYS.LAB_VALUE, String(labSelect.value || ''));
             const selectedText = getSelectedOptionText(labSelect);
             const visibleText = getSelectmenuVisibleText(labSelect);
             const isConfirmed = runStepCheck(
@@ -856,7 +857,7 @@
             if (!isConfirmed) {
               break;
             }
-            advanceStep(51);
+            setTimeout(() => advanceStep(51), 400);
           }
         }
         break;
@@ -864,20 +865,31 @@
       case 51:
         updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
         if (isDialogVisible('Laborauftrag erstellen')) {
-          const selectedLabEl = document.querySelector('select[name*="labChoice"]');
+          const laborDialog = findDialogByTitle('Laborauftrag erstellen');
+          let selectedLabEl = (laborDialog && laborDialog.querySelector('select[name*="labChoice"]')) || null;
+          if (!selectedLabEl && laborDialog) {
+            selectedLabEl = findSelectByOptionText(laborDialog, labName);
+          }
+          if (!selectedLabEl) {
+            console.log('[Teemer Optimizer] Step 5b: no lab select found yet, waiting for dialog to settle...');
+            setTimeout(executeStep, 250);
+            break;
+          }
+
+          const selectedText = getSelectedOptionText(selectedLabEl);
+          const visibleText = getSelectmenuVisibleText(selectedLabEl);
+          if (!isLabNameMatch(selectedText, labName) || (visibleText && !isLabNameMatch(visibleText, labName))) {
+            console.log(`[Teemer Optimizer] Step 5b: labor not settled yet. Hidden: "${selectedText || '-'}", Visible: "${visibleText || '-'}", expected: "${labName}". Retrying...`);
+            sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+            setTimeout(executeStep, 250);
+            break;
+          }
+
           if (!runStepCheck(
             51,
             'Labor vor Erstellen korrekt',
-            () => {
-              if (!selectedLabEl) return false;
-              const selectedText = getSelectedOptionText(selectedLabEl);
-              const visibleText = getSelectmenuVisibleText(selectedLabEl);
-              const hiddenMatches = isLabNameMatch(selectedText, labName);
-              const visibleMatches = !visibleText || isLabNameMatch(visibleText, labName);
-              return hiddenMatches && visibleMatches;
-            },
-            `Labor ist vor Erstellen nicht korrekt gesetzt (erwartet "${labName}").`,
-            { onFailStep: 50 }
+            () => isLabNameMatch(getSelectedOptionText(selectedLabEl), labName) && (!getSelectmenuVisibleText(selectedLabEl) || isLabNameMatch(getSelectmenuVisibleText(selectedLabEl), labName)),
+            `Labor ist vor Erstellen nicht korrekt gesetzt (erwartet "${labName}").`
           )) {
             break;
           }
