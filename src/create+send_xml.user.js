@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -223,7 +223,11 @@
   // --- STATE CONTROLLER / ENGINE ---
 
   function updateStatusBar(step, totalSteps, msg) {
-    const statusBar = document.getElementById(STATUS_BAR_ID);
+    let statusBar = document.getElementById(STATUS_BAR_ID);
+    if (!statusBar) {
+      createStatusBar();
+      statusBar = document.getElementById(STATUS_BAR_ID);
+    }
     if (!statusBar) return;
     statusBar.style.display = 'block';
 
@@ -792,6 +796,7 @@
     button.textContent = 'XML versenden';
 
     button.addEventListener('click', () => {
+      createModal();
       const modal = document.getElementById(MODAL_ID);
       if (modal) {
         modal.classList.add('is-open');
