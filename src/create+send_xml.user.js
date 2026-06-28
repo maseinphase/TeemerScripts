@@ -245,6 +245,8 @@
 
   function selectDropdownOption(selectEl, textToMatch) {
     if (!selectEl) return false;
+    
+    // Find option index natively first
     let foundIndex = -1;
     for (let i = 0; i < selectEl.options.length; i++) {
       if (selectEl.options[i].text.includes(textToMatch)) {
@@ -252,36 +254,43 @@
         break;
       }
     }
-    if (foundIndex !== -1) {
-      const optionVal = selectEl.options[foundIndex].value;
-      selectEl.selectedIndex = foundIndex;
+    if (foundIndex === -1) return false;
 
-      if (window.jQuery && typeof window.jQuery.fn.selectmenu === 'function') {
-        const $select = window.jQuery(selectEl);
-        $select.val(optionVal);
-        try {
-          $select.selectmenu('refresh');
-          // Wicket binds directly to jQuery UI selectmenu options change events.
-          // We must trigger "selectmenuchange" event with jQuery UI's expected ui.item payload.
-          const uiItem = {
-            item: {
-              value: optionVal,
-              index: foundIndex,
-              element: window.jQuery(selectEl.options[foundIndex]),
-              label: selectEl.options[foundIndex].text
-            }
-          };
-          $select.trigger('selectmenuchange', uiItem);
-        } catch (e) {
-          console.warn('[Teemer Optimizer] jQuery UI selectmenu refresh failed, falling back to native.', e);
-          triggerEvents(selectEl, ['change']);
-        }
-      } else {
-        triggerEvents(selectEl, ['change']);
+    // Check if jQuery UI selectmenu is active for this element
+    const selectId = selectEl.id;
+    if (selectId) {
+      const buttonEl = document.getElementById(`${selectId}-button`);
+      const menuEl = document.getElementById(`${selectId}-menu`);
+      
+      // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI hasn't initialized it yet,
+      // return false to wait for initialization in the next execution cycle
+      if (selectEl.classList.contains('pxs-dropdownchoice') && !buttonEl) {
+        console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on #${selectId}...`);
+        return false;
       }
-      return true;
+
+      if (buttonEl && menuEl) {
+        console.log(`[Teemer Optimizer] jQuery UI selectmenu detected for #${selectId}. Simulating click.`);
+        // Click the selectmenu button to expand the menu in the DOM
+        buttonEl.click();
+        
+        // Find matching item in the expanded menu
+        const items = Array.from(menuEl.querySelectorAll('.ui-menu-item'));
+        const targetItem = items.find(li => li.textContent.includes(textToMatch));
+        if (targetItem) {
+          const div = targetItem.querySelector('div') || targetItem;
+          div.click();
+          console.log(`[Teemer Optimizer] Programmatic selectmenu click succeeded for option: ${textToMatch}`);
+          return true;
+        }
+      }
     }
-    return false;
+
+    // Fallback: update natively if selectmenu is not present or click failed
+    console.log(`[Teemer Optimizer] Falling back to native dropdown update for #${selectId || 'unknown'}`);
+    selectEl.selectedIndex = foundIndex;
+    triggerEvents(selectEl, ['change']);
+    return true;
   }
 
   function appendOrderNumberToEditor(editor, orderNum, attempts = 0) {
