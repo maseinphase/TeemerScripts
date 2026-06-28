@@ -458,6 +458,16 @@
   function executeStep() {
     if (sessionStorage.getItem(STATE_KEYS.ACTIVE) !== 'true') return;
     if (sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true') return; // Do nothing if paused
+    
+    // If Wicket's AJAX indicator is active/visible, wait for the request to complete
+    const wicketIndicator = document.getElementById('wicket-ajax-indicator');
+    if (wicketIndicator && wicketIndicator.style.display !== 'none') {
+      console.log('[Teemer Optimizer] Wicket AJAX indicator is active. Waiting...');
+      // Reset the safety timeout timestamp so we don't timeout while Wicket is busy loading
+      sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+      return;
+    }
+
     if (checkTimeout()) return;
 
     const step = parseInt(sessionStorage.getItem(STATE_KEYS.STEP) || '1', 10);
@@ -666,14 +676,18 @@
         updateStatusBar(9, 11, 'Schritt 9: Dokumentenfilter "PDF" aktivieren...');
         const documentsInput = document.querySelector('input[name*="mediaRadio"][value="DOCUMENTS"]');
         if (documentsInput) {
+          console.log('[Teemer Optimizer] Step 9: Found documents radio input, checking it.');
           documentsInput.checked = true;
           triggerEvents(documentsInput, ['click', 'change']);
           advanceStep(10);
         } else {
           const pdfLabel = document.querySelector('label[title="PDF"], label[for*="DOCUMENTS"]');
           if (pdfLabel) {
+            console.log('[Teemer Optimizer] Step 9: Found PDF filter label, clicking it.');
             pdfLabel.click();
             advanceStep(10);
+          } else {
+            console.log('[Teemer Optimizer] Step 9: PDF filter elements not found.');
           }
         }
         break;
@@ -681,13 +695,18 @@
       case 10:
         updateStatusBar(10, 11, 'Schritt 10: Datei per E-Mail versenden...');
         const docsContainer = document.querySelector('.patient-docs');
+        console.log('[Teemer Optimizer] Step 10: docsContainer found:', !!docsContainer);
         if (docsContainer) {
-          const firstDoc = docsContainer.querySelector('.workflow-item');
+          const docs = Array.from(docsContainer.querySelectorAll('.workflow-item'));
+          console.log(`[Teemer Optimizer] Step 10: Found ${docs.length} documents in container.`);
+          const firstDoc = docs[0];
           if (firstDoc) {
             const mailBtn = Array.from(firstDoc.querySelectorAll('.imagefile-label, [title="Datei per E-Mail versenden"]')).find(el => {
               return el.title === 'Datei per E-Mail versenden' || el.textContent.includes('E-Mail');
             });
+            console.log('[Teemer Optimizer] Step 10: mailBtn found:', !!mailBtn);
             if (mailBtn) {
+              console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button.');
               mailBtn.click();
               advanceStep(11);
             }
