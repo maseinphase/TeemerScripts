@@ -1014,75 +1014,79 @@
         break;
 
       case 110:
-        const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-        const textElementSelect = document.querySelector('select[name="textElement"]');
+        {
+          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+          const textElementSelect = document.querySelector('select[name="textElement"]');
 
-        if (favoritesSelect && textElementSelect) {
-          updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
+          if (favoritesSelect && textElementSelect) {
+            updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
 
-          // 11a. Check if favorites choice has the lab selected.
-          const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
-          if (!favText.includes(labName)) {
-            console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
-            const selected = selectDropdownOption(favoritesSelect, labName);
-            if (!selected) break;
+            // 11a. Check if favorites choice has the lab selected.
+            const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
+            if (!favText.includes(labName)) {
+              console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
+              const selected = selectDropdownOption(favoritesSelect, labName);
+              if (!selected) break;
+            }
+
+            if (!runStepCheck(
+              110,
+              'Favorit/Labor gesetzt',
+              () => isLabNameMatch(getSelectedOptionText(favoritesSelect), labName),
+              `Favoriten-Dropdown steht nicht auf "${labName}".`
+            )) {
+              break;
+            }
+
+            advanceStep(111);
           }
-
-          if (!runStepCheck(
-            110,
-            'Favorit/Labor gesetzt',
-            () => isLabNameMatch(getSelectedOptionText(favoritesSelect), labName),
-            `Favoriten-Dropdown steht nicht auf "${labName}".`
-          )) {
-            break;
-          }
-
-          advanceStep(111);
         }
         break;
 
       case 111:
-        const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-        const textElementSelect = document.querySelector('select[name="textElement"]');
-        if (!favoritesSelect || !textElementSelect) break;
+        {
+          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+          const textElementSelect = document.querySelector('select[name="textElement"]');
+          if (!favoritesSelect || !textElementSelect) break;
 
-        updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
+          updateStatusBar(11, 11, 'Schritt 11b: Textbaustein XML auswählen...');
 
-        // 11b. Check if the editor already contains the template text.
-        // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
-        const $editor = window.jQuery('textarea[name="wrapper:message"]');
-        const editor = $editor.data('kendoEditor');
-        const editorText = editor ? editor.value().trim() : '';
-        const hasTemplateText = editorText.length > 0 && 
-                                (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
+          // 11b. Check if the editor already contains the template text.
+          // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
+          const $editor = window.jQuery('textarea[name="wrapper:message"]');
+          const editor = $editor.data('kendoEditor');
+          const editorText = editor ? editor.value().trim() : '';
+          const hasTemplateText = editorText.length > 0 && 
+                                  (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
 
-        if (!hasTemplateText) {
-          // Check if text block choice has "XML" selected.
-          const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
-          if (!textElementText.includes('XML')) {
-            console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
-            const selected = selectDropdownOption(textElementSelect, 'XML');
-            if (!selected) break;
+          if (!hasTemplateText) {
+            // Check if text block choice has "XML" selected.
+            const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
+            if (!textElementText.includes('XML')) {
+              console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
+              const selected = selectDropdownOption(textElementSelect, 'XML');
+              if (!selected) break;
+              break;
+            }
+          }
+
+          if (!runStepCheck(
+            111,
+            'XML Textbaustein geladen',
+            () => {
+              const textElementText = getSelectedOptionText(textElementSelect);
+              const editorTextNow = editor ? editor.value().trim() : '';
+              const templateLoaded = editorTextNow.length > 0 &&
+                (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
+              return textElementText.includes('XML') || templateLoaded;
+            },
+            'XML Textbaustein wurde nicht geladen.'
+          )) {
             break;
           }
-        }
 
-        if (!runStepCheck(
-          111,
-          'XML Textbaustein geladen',
-          () => {
-            const textElementText = getSelectedOptionText(textElementSelect);
-            const editorTextNow = editor ? editor.value().trim() : '';
-            const templateLoaded = editorTextNow.length > 0 &&
-              (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
-            return textElementText.includes('XML') || templateLoaded;
-          },
-          'XML Textbaustein wurde nicht geladen.'
-        )) {
-          break;
+          advanceStep(112);
         }
-
-        advanceStep(112);
         break;
 
       case 112:
