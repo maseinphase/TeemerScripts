@@ -250,6 +250,35 @@
     return `${selectEl.id || selectEl.name || 'unknown'} => ${optionTexts.join(' | ')}`;
   }
 
+  function findSelectByExactLabel(rootElement, labelText) {
+    if (!rootElement) return null;
+
+    const labels = Array.from(rootElement.querySelectorAll('label'));
+    const label = labels.find((labelEl) => {
+      return labelEl.textContent.replace(':', '').trim().toLowerCase() === labelText.toLowerCase().trim();
+    });
+
+    if (!label) return null;
+
+    const forId = label.getAttribute('for');
+    if (forId) {
+      const directSelect = rootElement.querySelector(`#${CSS.escape(forId)}`);
+      if (directSelect && directSelect.tagName === 'SELECT') {
+        return directSelect;
+      }
+    }
+
+    const nearbySelect = label.parentElement ? label.parentElement.querySelector('select') : null;
+    if (nearbySelect) {
+      return nearbySelect;
+    }
+
+    const nextSelect = label.nextElementSibling && label.nextElementSibling.tagName === 'SELECT'
+      ? label.nextElementSibling
+      : null;
+    return nextSelect;
+  }
+
   function findSelectByOptionText(rootElement, targetText) {
     if (!rootElement) return null;
     const selects = Array.from(rootElement.querySelectorAll('select'));
@@ -801,7 +830,7 @@
         
         // Find and highlight strictly "Labor" label in the dialog (ignoring Laborauftragsart)
         const laborDialog = findDialogByTitle('Laborauftrag erstellen');
-        const modalLabels = Array.from((laborDialog || document).querySelectorAll('.ui-dialog label'));
+        const modalLabels = Array.from((laborDialog || document).querySelectorAll('label'));
         const labLabel = modalLabels.find(el => {
           const text = el.textContent.replace(':', '').trim().toLowerCase();
           return text === 'labor';
@@ -816,8 +845,9 @@
 
         console.log(`[Teemer Optimizer] Step 5 - target lab name to select: "${labName}"`);
 
-        // Find the select element using the labor dialog first, then by known lab choice selector, then by option text.
-        let labSelect = (laborDialog && laborDialog.querySelector('select[name*="labChoice"]')) || document.querySelector('select[name*="labChoice"]');
+        // Find the actual labor field inside the modal first. Some plan types also expose a global labChoice
+        // outside the dialog, but that field is not the one that drives the modal submission.
+        let labSelect = laborDialog ? findSelectByExactLabel(laborDialog, 'Labor') : null;
         if (!labSelect && laborDialog) {
           labSelect = findSelectByOptionText(laborDialog, labName);
         }
@@ -826,6 +856,14 @@
           if (parentRow) {
             labSelect = parentRow.querySelector('select');
           }
+        }
+
+        if (!labSelect && laborDialog) {
+          labSelect = laborDialog.querySelector('select[name*="labChoice"]');
+        }
+
+        if (!labSelect) {
+          labSelect = document.querySelector('select[name*="labChoice"]');
         }
 
         if (!labSelect) {
@@ -866,9 +904,12 @@
         updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
         if (isDialogVisible('Laborauftrag erstellen')) {
           const laborDialog = findDialogByTitle('Laborauftrag erstellen');
-          let selectedLabEl = (laborDialog && laborDialog.querySelector('select[name*="labChoice"]')) || null;
+          let selectedLabEl = laborDialog ? findSelectByExactLabel(laborDialog, 'Labor') : null;
           if (!selectedLabEl && laborDialog) {
             selectedLabEl = findSelectByOptionText(laborDialog, labName);
+          }
+          if (!selectedLabEl && laborDialog) {
+            selectedLabEl = laborDialog.querySelector('select[name*="labChoice"]');
           }
           if (!selectedLabEl) {
             console.log('[Teemer Optimizer] Step 5b: no lab select found yet, waiting for dialog to settle...');
