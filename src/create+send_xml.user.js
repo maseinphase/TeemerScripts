@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
+// @match        https://*.teemer.de/*
 // @match        http://localhost:9443/praxissteuerung/wicket/*
 // @match        http://127.0.0.1:9443/praxissteuerung/wicket/*
 // @match        http://localhost:*/praxissteuerung/wicket/*
@@ -28,7 +29,8 @@
     ORDER_NUMBER: 'tm_xml_order_number',
     PATIENT_NAME: 'tm_xml_patient_name',
     STEP_TIMESTAMP: 'tm_xml_step_timestamp',
-    SAFE_MODE: 'tm_xml_safe_mode'
+    DEBUG_MODE: 'tm_xml_debug_mode',
+    PAUSED: 'tm_xml_paused'
   };
 
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
@@ -78,7 +80,7 @@
         justify-content: space-between;
         align-items: center;
       }
-      .tm-header h3 {
+      .tm-header .ui-dialog-title {
         margin: 0;
         font-size: 1.25rem;
         font-weight: 600;
@@ -191,10 +193,7 @@
         margin-bottom: 12px;
         min-height: 32px;
       }
-      .tm-status-cancel {
-        width: 100%;
-        background: #dc2626;
-        color: #ffffff;
+      .tm-status-next, .tm-status-cancel {
         border: none;
         padding: 8px;
         border-radius: 6px;
@@ -202,6 +201,18 @@
         font-weight: 600;
         cursor: pointer;
         transition: background 0.2s;
+      }
+      .tm-status-next {
+        background: #2563eb;
+        color: #ffffff;
+      }
+      .tm-status-next:hover {
+        background: #1d4ed8;
+      }
+      .tm-status-cancel {
+        width: 100%;
+        background: #dc2626;
+        color: #ffffff;
       }
       .tm-status-cancel:hover {
         background: #b91c1c;
@@ -265,6 +276,8 @@
 
     const progressBar = statusBar.querySelector('.tm-status-progress-bar');
     const msgEl = statusBar.querySelector('.tm-status-msg');
+    const nextBtn = statusBar.querySelector('.tm-status-next');
+    const cancelBtn = statusBar.querySelector('.tm-status-cancel');
 
     if (progressBar) {
       const percentage = (step / totalSteps) * 100;
@@ -272,6 +285,23 @@
     }
     if (msgEl) {
       msgEl.textContent = msg;
+    }
+
+    const isPaused = sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true';
+    if (nextBtn) {
+      if (isPaused && step < 11) {
+        nextBtn.style.display = 'block';
+        if (cancelBtn) {
+          cancelBtn.style.width = 'auto';
+          cancelBtn.style.flex = '1';
+        }
+      } else {
+        nextBtn.style.display = 'none';
+        if (cancelBtn) {
+          cancelBtn.style.width = '100%';
+          cancelBtn.style.flex = 'none';
+        }
+      }
     }
   }
 
@@ -286,13 +316,14 @@
     sessionStorage.removeItem(STATE_KEYS.ORDER_NUMBER);
     sessionStorage.removeItem(STATE_KEYS.PATIENT_NAME);
     sessionStorage.removeItem(STATE_KEYS.STEP_TIMESTAMP);
-    sessionStorage.removeItem(STATE_KEYS.SAFE_MODE);
+    sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
+    sessionStorage.removeItem(STATE_KEYS.PAUSED);
 
     const statusBar = document.getElementById(STATUS_BAR_ID);
     if (statusBar) {
       if (success) {
         updateStatusBar(11, 11, 'Erfolgreich abgeschlossen!');
-        setTimeout(() => { statusBar.style.display = 'none'; }, 3000);
+        setTimeout(() => { statusBar.remove(); }, 3000);
       } else {
         updateStatusBar(0, 11, errorMsg || 'Abgebrochen.');
         const cancelBtn = statusBar.querySelector('.tm-status-cancel');
@@ -305,8 +336,16 @@
     sessionStorage.setItem(STATE_KEYS.STEP, String(nextStep));
     sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
     console.log(`[Teemer Optimizer] Advancing to Step ${nextStep}`);
-    // Immediately execute the next step loop
-    setTimeout(executeStep, 300);
+
+    const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
+    const majorSteps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    if (isDebugMode && majorSteps.includes(nextStep)) {
+      sessionStorage.setItem(STATE_KEYS.PAUSED, 'true');
+      updateStatusBar(nextStep - 1, 11, `Bereit für Schritt ${nextStep}.`);
+    } else {
+      sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
+      setTimeout(executeStep, 300);
+    }
   }
 
   function checkTimeout() {
@@ -321,6 +360,7 @@
 
   function executeStep() {
     if (sessionStorage.getItem(STATE_KEYS.ACTIVE) !== 'true') return;
+    if (sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true') return; // Do nothing if paused
     if (checkTimeout()) return;
 
     const step = parseInt(sessionStorage.getItem(STATE_KEYS.STEP) || '1', 10);
@@ -330,7 +370,7 @@
     const labValue = sessionStorage.getItem(STATE_KEYS.LAB_VALUE);
     const description = sessionStorage.getItem(STATE_KEYS.DESCRIPTION);
     const patientName = sessionStorage.getItem(STATE_KEYS.PATIENT_NAME);
-    const isSafeMode = sessionStorage.getItem(STATE_KEYS.SAFE_MODE) === 'true';
+    const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
 
     console.log(`[Teemer Optimizer] Executing Step ${step}...`);
 
@@ -556,15 +596,15 @@
             triggerEvents(textElementSelect, ['change']);
           }
 
-          // Safe Mode / Test Recipient Override
+          // Debug Mode / Test Recipient Override
           // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
           setTimeout(() => {
-            if (isSafeMode) {
+            if (isDebugMode) {
               const receiverInput = document.querySelector('input[name="receiver"]');
               if (receiverInput) {
                 receiverInput.value = 'm-seeland@gmx.net';
                 triggerEvents(receiverInput, ['input', 'change']);
-                console.log('[Teemer Optimizer] Safe Mode Active: Recipient overrode to m-seeland@gmx.net');
+                console.log('[Teemer Optimizer] Debug Mode Active: Recipient overrode to m-seeland@gmx.net');
               }
             }
 
@@ -614,12 +654,14 @@
     modal.innerHTML = `
       <div class="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tm-dialog-title">
         <div class="tm-header">
-          <h3 id="tm-dialog-title">XML Daten eingeben</h3>
+          <span class="ui-dialog-title" id="tm-dialog-title">XML Daten eingeben</span>
           <button type="button" class="tm-close" aria-label="Schließen">&times;</button>
         </div>
         <div class="tm-body">
           <div class="tm-field">
-            <label for="tm-select-plan">Plan</label>
+            <div class="pxs-formlayout__row__label">
+              <label for="tm-select-plan">Plan</label>
+            </div>
             <select id="tm-select-plan" class="tm-select">
               <option value="HKP">Heil- und Kostenplan</option>
               <option value="HKPR">Zahnersatz-Reparaturen</option>
@@ -629,7 +671,9 @@
             </select>
           </div>
           <div class="tm-field">
-            <label for="tm-select-labor">Labor</label>
+            <div class="pxs-formlayout__row__label">
+              <label for="tm-select-labor">Labor</label>
+            </div>
             <select id="tm-select-labor" class="tm-select">
               <option value="Herrmann">Herrmann</option>
               <option value="First">First</option>
@@ -642,12 +686,14 @@
             </select>
           </div>
           <div class="tm-field">
-            <label for="tm-textarea-desc">Beschreibung</label>
+            <div class="pxs-formlayout__row__label">
+              <label for="tm-textarea-desc">Beschreibung</label>
+            </div>
             <textarea id="tm-textarea-desc" class="tm-textarea" placeholder="z.B. OK Proth. gebrochen"></textarea>
           </div>
           <div class="tm-field" style="display:flex; flex-direction:row; align-items:center; gap:8px;">
-            <input type="checkbox" id="tm-checkbox-safe" checked style="width:auto; margin:0;" />
-            <label for="tm-checkbox-safe" style="margin-bottom:0; cursor:pointer;">Safe Mode (Test-E-Mail an m-seeland@gmx.net)</label>
+            <input type="checkbox" id="tm-checkbox-debug" checked style="width:auto; margin:0;" />
+            <label for="tm-checkbox-debug" style="margin-bottom:0; cursor:pointer;">Debug Mode (Schrittweise)</label>
           </div>
           <button type="button" class="tm-submit">XML erstellen und versenden</button>
         </div>
@@ -666,13 +712,13 @@
       const planSelect = modal.querySelector('#tm-select-plan');
       const laborSelect = modal.querySelector('#tm-select-labor');
       const descTextarea = modal.querySelector('#tm-textarea-desc');
-      const safeCheckbox = modal.querySelector('#tm-checkbox-safe');
+      const debugCheckbox = modal.querySelector('#tm-checkbox-debug');
 
       const planVal = planSelect.value;
       const planText = planSelect.options[planSelect.selectedIndex].text;
       const labVal = laborSelect.value;
       const descVal = descTextarea.value.trim() || 'XML Plan';
-      const isSafeChecked = safeCheckbox ? safeCheckbox.checked : false;
+      const isDebugChecked = debugCheckbox ? debugCheckbox.checked : false;
       const patient = getPatientName();
 
       if (!patient) {
@@ -688,7 +734,8 @@
       sessionStorage.setItem(STATE_KEYS.LAB_NAME, labVal);
       sessionStorage.setItem(STATE_KEYS.DESCRIPTION, descVal);
       sessionStorage.setItem(STATE_KEYS.PATIENT_NAME, patient);
-      sessionStorage.setItem(STATE_KEYS.SAFE_MODE, String(isSafeChecked));
+      sessionStorage.setItem(STATE_KEYS.DEBUG_MODE, String(isDebugChecked));
+      sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
       sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
 
       modal.classList.remove('is-open');
@@ -717,12 +764,31 @@
         <div class="tm-status-progress-bar"></div>
       </div>
       <div class="tm-status-msg">Bereite vor...</div>
-      <button type="button" class="tm-status-cancel">Abbrechen</button>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="tm-status-next" style="display:none; flex:1;">nächster Schritt</button>
+        <button type="button" class="tm-status-cancel" style="width:100%;">Abbrechen</button>
+      </div>
     `;
 
     const cancelBtn = statusBar.querySelector('.tm-status-cancel');
     cancelBtn.addEventListener('click', () => {
-      stopAutomation(false, 'Durch Benutzer abgebrochen.');
+      if (cancelBtn.textContent === 'Schließen') {
+        statusBar.remove();
+      } else {
+        stopAutomation(false, 'Durch Benutzer abgebrochen.');
+      }
+    });
+
+    const nextBtn = statusBar.querySelector('.tm-status-next');
+    nextBtn.addEventListener('click', () => {
+      sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
+      sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+      nextBtn.style.display = 'none';
+      if (cancelBtn) {
+        cancelBtn.style.width = '100%';
+        cancelBtn.style.flex = 'none';
+      }
+      executeStep();
     });
 
     document.body.appendChild(statusBar);
