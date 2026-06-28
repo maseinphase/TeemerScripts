@@ -233,6 +233,41 @@
     return false;
   }
 
+  function findDialogByTitle(dialogTitle) {
+    const dialogs = document.querySelectorAll('.ui-dialog');
+    for (const dialog of dialogs) {
+      const titleEl = dialog.querySelector('.ui-dialog-title');
+      if (titleEl && titleEl.textContent.trim().includes(dialogTitle)) {
+        return dialog;
+      }
+    }
+    return null;
+  }
+
+  function summarizeSelectCandidate(selectEl) {
+    if (!selectEl) return '(missing select)';
+    const optionTexts = Array.from(selectEl.options || []).map((option) => option.text.trim());
+    return `${selectEl.id || selectEl.name || 'unknown'} => ${optionTexts.join(' | ')}`;
+  }
+
+  function findSelectByOptionText(rootElement, targetText) {
+    if (!rootElement) return null;
+    const selects = Array.from(rootElement.querySelectorAll('select'));
+    console.log(`[Teemer Optimizer] Select debug -> scanning ${selects.length} selects inside dialog for target "${targetText}".`);
+
+    const matchingCandidates = selects.filter((selectEl) => {
+      return Array.from(selectEl.options || []).some((option) => isLabNameMatch(option.text, targetText));
+    });
+
+    if (matchingCandidates.length > 0) {
+      console.log('[Teemer Optimizer] Select debug -> matching candidates:', matchingCandidates.map(summarizeSelectCandidate));
+      return matchingCandidates[0];
+    }
+
+    console.log('[Teemer Optimizer] Select debug -> no candidate in dialog matched target text. Available candidates:', selects.map(summarizeSelectCandidate));
+    return null;
+  }
+
   function getRetryStorageKey(step) {
     return `tm_xml_retry_${step}`;
   }
@@ -765,7 +800,8 @@
         updateStatusBar(5, 11, 'Schritt 5a: Labor auswählen...');
         
         // Find and highlight strictly "Labor" label in the dialog (ignoring Laborauftragsart)
-        const modalLabels = Array.from(document.querySelectorAll('.ui-dialog label'));
+        const laborDialog = findDialogByTitle('Laborauftrag erstellen');
+        const modalLabels = Array.from((laborDialog || document).querySelectorAll('.ui-dialog label'));
         const labLabel = modalLabels.find(el => {
           const text = el.textContent.replace(':', '').trim().toLowerCase();
           return text === 'labor';
@@ -780,13 +816,24 @@
 
         console.log(`[Teemer Optimizer] Step 5 - target lab name to select: "${labName}"`);
 
-        // Find the select element (try name attribute first, fallback to label's sibling row)
-        let labSelect = document.querySelector('select[name*="labChoice"]');
+        // Find the select element using the labor dialog first, then by known lab choice selector, then by option text.
+        let labSelect = (laborDialog && laborDialog.querySelector('select[name*="labChoice"]')) || document.querySelector('select[name*="labChoice"]');
+        if (!labSelect && laborDialog) {
+          labSelect = findSelectByOptionText(laborDialog, labName);
+        }
         if (!labSelect && labLabel) {
           const parentRow = labLabel.closest('.pxs-formlayout__row, .nubo-form-input-container, div');
           if (parentRow) {
             labSelect = parentRow.querySelector('select');
           }
+        }
+
+        if (!labSelect) {
+          const fallbackSelects = Array.from(document.querySelectorAll('select.pxs-dropdownchoice, select'));
+          console.log('[Teemer Optimizer] Step 5 fallback select scan:', fallbackSelects.map(summarizeSelectCandidate));
+          labSelect = fallbackSelects.find((selectEl) => {
+            return Array.from(selectEl.options || []).some((option) => isLabNameMatch(option.text, labName));
+          }) || null;
         }
 
         console.log('[Teemer Optimizer] labSelect element located:', !!labSelect);
