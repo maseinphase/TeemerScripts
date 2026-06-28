@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.3
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -58,96 +58,33 @@
       #${MODAL_ID}.is-open {
         display: flex;
       }
-      .tm-dialog {
-        background: #ffffff;
-        border-radius: 16px;
-        width: 100%;
-        max-width: 440px;
+      #${MODAL_ID} .ui-dialog {
+        position: relative;
+        top: auto;
+        left: auto;
+        margin: 0 auto;
+        width: 440px;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        overflow: hidden;
-        border: 1px solid rgba(226, 232, 240, 0.8);
-        animation: tm-fadeIn 0.25s ease-out;
       }
-      @keyframes tm-fadeIn {
-        from { opacity: 0; transform: scale(0.95); }
-        to { opacity: 1; transform: scale(1); }
+      #${MODAL_ID} .pxs-formlayout__row {
+        margin-bottom: 14px;
       }
-      .tm-header {
-        padding: 20px 24px;
-        background: #0f172a;
-        color: #ffffff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      .tm-header .ui-dialog-title {
-        margin: 0;
-        font-size: 1.25rem;
+      #${MODAL_ID} .pxs-formlayout__row__label {
         font-weight: 600;
-      }
-      .tm-close {
-        background: transparent;
-        border: none;
-        color: #94a3b8;
-        font-size: 1.5rem;
-        cursor: pointer;
-        padding: 0;
-        line-height: 1;
-      }
-      .tm-close:hover {
-        color: #ffffff;
-      }
-      .tm-body {
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-      .tm-field {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-      .tm-field label {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: #334155;
         text-align: left;
+        margin-bottom: 4px;
       }
-      .tm-select, .tm-textarea {
+      #${MODAL_ID} .ui-dialog-content {
+        padding: 20px 24px;
+      }
+      #${MODAL_ID} select, #${MODAL_ID} textarea {
         width: 100%;
-        padding: 10px 12px;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        font-size: 0.95rem;
-        background-color: #ffffff;
-        color: #0f172a;
         box-sizing: border-box;
+        padding: 8px 10px;
       }
-      .tm-select:focus, .tm-textarea:focus {
-        border-color: #2563eb;
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-      }
-      .tm-textarea {
-        height: 80px;
+      #${MODAL_ID} textarea {
+        height: 70px;
         resize: vertical;
-      }
-      .tm-submit {
-        width: 100%;
-        padding: 12px;
-        background: #2563eb;
-        color: #ffffff;
-        border: none;
-        border-radius: 8px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        cursor: pointer;
-        transition: background 0.2s;
-        margin-top: 8px;
-      }
-      .tm-submit:hover {
-        background: #1d4ed8;
       }
 
       /* Floating status dashboard */
@@ -652,62 +589,80 @@
     const modal = document.createElement('div');
     modal.id = MODAL_ID;
     modal.innerHTML = `
-      <div class="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tm-dialog-title">
-        <div class="tm-header">
+      <div class="ui-dialog ui-corner-all ui-widget ui-widget-content ui-front wicket-modal ui-dialog-buttons" role="dialog" aria-modal="true" aria-labelledby="tm-dialog-title">
+        <div class="ui-dialog-titlebar ui-corner-all ui-widget-header ui-helper-clearfix">
           <span class="ui-dialog-title" id="tm-dialog-title">XML Daten eingeben</span>
-          <button type="button" class="tm-close" aria-label="Schließen">&times;</button>
+          <button type="button" class="ui-button ui-corner-all ui-icon-only ui-dialog-titlebar-close" title="Schließen" aria-label="Schließen">
+            <span class="ui-button-icon ui-icon ui-icon-closethick"></span>
+            <span class="ui-button-icon-space"> </span>Schließen
+          </button>
         </div>
-        <div class="tm-body">
-          <div class="tm-field">
+        <div class="ui-dialog-content ui-widget-content">
+          <div class="pxs-formlayout__row">
             <div class="pxs-formlayout__row__label">
               <label for="tm-select-plan">Plan</label>
             </div>
-            <select id="tm-select-plan" class="tm-select">
-              <option value="HKP">Heil- und Kostenplan</option>
-              <option value="HKPR">Zahnersatz-Reparaturen</option>
-              <option value="HKPBG">Zahnersatz-Plan / Berufsgenossenschaft</option>
-              <option value="KBR">Kieferbruch-Plan</option>
-              <option value="ACA">Mehrkostenvereinbarung</option>
-            </select>
+            <div class="pxs-formlayout__row__field">
+              <select id="tm-select-plan" class="ui-corner-all ui-widget ui-widget-content">
+                <option value="HKP">Heil- und Kostenplan</option>
+                <option value="HKPR">Zahnersatz-Reparaturen</option>
+                <option value="HKPBG">Zahnersatz-Plan / Berufsgenossenschaft</option>
+                <option value="KBR">Kieferbruch-Plan</option>
+                <option value="ACA">Mehrkostenvereinbarung</option>
+              </select>
+            </div>
           </div>
-          <div class="tm-field">
+          <div class="pxs-formlayout__row">
             <div class="pxs-formlayout__row__label">
               <label for="tm-select-labor">Labor</label>
             </div>
-            <select id="tm-select-labor" class="tm-select">
-              <option value="Herrmann">Herrmann</option>
-              <option value="First">First</option>
-              <option value="Estadent">Estadent</option>
-              <option value="Lorenz Dental">Lorenz Dental</option>
-              <option value="Das Dentallabor/Trautvetter">Das Dentallabor/Trautvetter</option>
-              <option value="Saalezahn Dentaltechnik GmbH">Saalezahn Dentaltechnik GmbH</option>
-              <option value="Dentallabor Schwinkowski">Dentallabor Schwinkowski</option>
-              <option value="B & V Dentallabor GmbH">B & V Dentallabor GmbH</option>
-            </select>
+            <div class="pxs-formlayout__row__field">
+              <select id="tm-select-labor" class="ui-corner-all ui-widget ui-widget-content">
+                <option value="Herrmann">Herrmann</option>
+                <option value="First">First</option>
+                <option value="Estadent">Estadent</option>
+                <option value="Lorenz Dental">Lorenz Dental</option>
+                <option value="Das Dentallabor/Trautvetter">Das Dentallabor/Trautvetter</option>
+                <option value="Saalezahn Dentaltechnik GmbH">Saalezahn Dentaltechnik GmbH</option>
+                <option value="Dentallabor Schwinkowski">Dentallabor Schwinkowski</option>
+                <option value="B & V Dentallabor GmbH">B & V Dentallabor GmbH</option>
+              </select>
+            </div>
           </div>
-          <div class="tm-field">
+          <div class="pxs-formlayout__row">
             <div class="pxs-formlayout__row__label">
               <label for="tm-textarea-desc">Beschreibung</label>
             </div>
-            <textarea id="tm-textarea-desc" class="tm-textarea" placeholder="z.B. OK Proth. gebrochen"></textarea>
+            <div class="pxs-formlayout__row__field">
+              <textarea id="tm-textarea-desc" class="ui-corner-all ui-widget ui-widget-content" placeholder="z.B. OK Proth. gebrochen"></textarea>
+            </div>
           </div>
-          <div class="tm-field" style="display:flex; flex-direction:row; align-items:center; gap:8px;">
+          <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 14px;">
             <input type="checkbox" id="tm-checkbox-debug" checked style="width:auto; margin:0;" />
             <label for="tm-checkbox-debug" style="margin-bottom:0; cursor:pointer;">Debug Mode (Schrittweise)</label>
           </div>
-          <button type="button" class="tm-submit">XML erstellen und versenden</button>
+        </div>
+        <div class="ui-dialog-buttonpane ui-widget-content ui-helper-clearfix">
+          <div class="ui-dialog-buttonset">
+            <button type="button" class="ui-button ui-corner-all ui-widget tm-submit-btn">XML erstellen und versenden</button>
+            <button type="button" class="ui-button ui-corner-all ui-widget tm-cancel-btn">Abbrechen</button>
+          </div>
         </div>
       </div>
     `;
 
     // Modal Events
-    const closeBtn = modal.querySelector('.tm-close');
+    const closeBtn = modal.querySelector('.ui-dialog-titlebar-close');
     closeBtn.addEventListener('click', () => modal.classList.remove('is-open'));
+    
+    const cancelBtn = modal.querySelector('.tm-cancel-btn');
+    cancelBtn.addEventListener('click', () => modal.classList.remove('is-open'));
+
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.classList.remove('is-open');
     });
 
-    const submitBtn = modal.querySelector('.tm-submit');
+    const submitBtn = modal.querySelector('.tm-submit-btn');
     submitBtn.addEventListener('click', () => {
       const planSelect = modal.querySelector('#tm-select-plan');
       const laborSelect = modal.querySelector('#tm-select-labor');
@@ -747,6 +702,11 @@
       // Trigger first execution
       setTimeout(executeStep, 500);
     });
+
+    // Initialize jQuery UI button widgets for native skins
+    if (window.jQuery && typeof window.jQuery.fn.button === 'function') {
+      window.jQuery(modal.querySelectorAll('.ui-button')).button();
+    }
 
     document.body.appendChild(modal);
   }
