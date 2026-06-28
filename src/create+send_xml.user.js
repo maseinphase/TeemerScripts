@@ -256,40 +256,71 @@
     }
     if (foundIndex === -1) return false;
 
-    // Check if jQuery UI selectmenu is active for this element
+    const optionVal = selectEl.options[foundIndex].value;
     const selectId = selectEl.id;
-    if (selectId) {
+
+    // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI button hasn't been created yet,
+    // wait for it to be ready
+    if (selectEl.classList.contains('pxs-dropdownchoice') && selectId) {
       const buttonEl = document.getElementById(`${selectId}-button`);
-      const menuEl = document.getElementById(`${selectId}-menu`);
-      
-      // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI hasn't initialized it yet,
-      // return false to wait for initialization in the next execution cycle
-      if (selectEl.classList.contains('pxs-dropdownchoice') && !buttonEl) {
+      if (!buttonEl) {
         console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on #${selectId}...`);
         return false;
       }
+    }
 
-      if (buttonEl && menuEl) {
-        console.log(`[Teemer Optimizer] jQuery UI selectmenu detected for #${selectId}. Simulating click.`);
-        // Click the selectmenu button to expand the menu in the DOM
-        buttonEl.click();
-        
-        // Find matching item in the expanded menu
-        const items = Array.from(menuEl.querySelectorAll('.ui-menu-item'));
-        const targetItem = items.find(li => li.textContent.includes(textToMatch));
-        if (targetItem) {
-          const div = targetItem.querySelector('div') || targetItem;
-          div.click();
-          console.log(`[Teemer Optimizer] Programmatic selectmenu click succeeded for option: ${textToMatch}`);
-          return true;
+    // 1. Try to update using jQuery UI selectmenu widget APIs directly if jQuery is available
+    if (window.jQuery && selectId && typeof window.jQuery.fn.selectmenu === 'function') {
+      try {
+        const $select = window.jQuery(selectEl);
+        const widgetInstance = $select.selectmenu('instance');
+        if (widgetInstance) {
+          console.log(`[Teemer Optimizer] Direct selectmenu instance update for #${selectId} to value: ${optionVal}`);
+          $select.val(optionVal);
+          $select.selectmenu('refresh');
+          
+          // Trigger change on the widget by simulating a click on the menu item
+          const menuEl = document.getElementById(`${selectId}-menu`);
+          const buttonEl = document.getElementById(`${selectId}-button`);
+          if (buttonEl && menuEl) {
+            buttonEl.click();
+            const items = Array.from(menuEl.querySelectorAll('.ui-menu-item'));
+            const targetItem = items.find(li => li.textContent.includes(textToMatch));
+            if (targetItem) {
+              const div = targetItem.querySelector('div') || targetItem;
+              div.click();
+              console.log(`[Teemer Optimizer] Direct selectmenu menu item click succeeded for option: ${textToMatch}`);
+              return true;
+            }
+          }
         }
+      } catch (e) {
+        console.warn('[Teemer Optimizer] Direct JQuery UI selectmenu update failed. Falling back to native/trigger.', e);
       }
     }
 
-    // Fallback: update natively if selectmenu is not present or click failed
-    console.log(`[Teemer Optimizer] Falling back to native dropdown update for #${selectId || 'unknown'}`);
+    // 2. Fallback: update natively and trigger all possible change events (both native and jQuery selectmenuchange)
+    console.log(`[Teemer Optimizer] Running native fallback update for #${selectId || 'unknown'}`);
     selectEl.selectedIndex = foundIndex;
-    triggerEvents(selectEl, ['change']);
+    triggerEvents(selectEl, ['change', 'input']);
+    
+    // Trigger selectmenuchange custom event in case JQuery selectmenu change event callbacks are bound
+    if (window.jQuery) {
+      try {
+        const $select = window.jQuery(selectEl);
+        const uiItem = {
+          item: {
+            value: optionVal,
+            index: foundIndex,
+            element: window.jQuery(selectEl.options[foundIndex]),
+            label: selectEl.options[foundIndex].text
+          }
+        };
+        $select.trigger('selectmenuchange', uiItem);
+      } catch (err) {
+        console.warn('[Teemer Optimizer] Failed to trigger selectmenuchange event.', err);
+      }
+    }
     return true;
   }
 
