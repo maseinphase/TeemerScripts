@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.12
+// @version      1.0.13
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -835,13 +835,14 @@
           const text = el.textContent.replace(':', '').trim().toLowerCase();
           return text === 'labor';
         });
-        if (labLabel) {
-          labLabel.style.backgroundColor = 'yellow';
-          labLabel.style.color = 'black';
-          labLabel.style.border = '2px solid red';
-          labLabel.style.padding = '2px';
-          console.log('[Teemer Optimizer] Highlighted the correct "Labor" label in the modal.');
-        }
+        // Highlighting disabled on request.
+        // if (labLabel) {
+        //   labLabel.style.backgroundColor = 'yellow';
+        //   labLabel.style.color = 'black';
+        //   labLabel.style.border = '2px solid red';
+        //   labLabel.style.padding = '2px';
+        //   console.log('[Teemer Optimizer] Highlighted the correct "Labor" label in the modal.');
+        // }
 
         console.log(`[Teemer Optimizer] Step 5 - target lab name to select: "${labName}"`);
 
@@ -1263,11 +1264,11 @@
             </div>
           </div>
           <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 14px;">
-            <input type="checkbox" id="tm-checkbox-debug" checked style="width:auto; margin:0;" />
+            <input type="checkbox" id="tm-checkbox-debug" style="width:auto; margin:0;" />
             <label for="tm-checkbox-debug" style="margin-bottom:0; cursor:pointer;">Debug Mode (Schrittweise)</label>
           </div>
           <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 10px;">
-            <input type="checkbox" id="tm-checkbox-dev-email" checked style="width:auto; margin:0;" />
+            <input type="checkbox" id="tm-checkbox-dev-email" style="width:auto; margin:0;" />
             <label for="tm-checkbox-dev-email" style="margin-bottom:0; cursor:pointer;">E-Mail an dev anstelle Labor</label>
           </div>
         </div>
