@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -71,8 +71,13 @@
       }
       #${MODAL_ID} .pxs-formlayout__row__label {
         font-weight: 600;
-        text-align: left;
+        text-align: left !important;
         margin-bottom: 4px;
+        display: block !important;
+      }
+      #${MODAL_ID} .pxs-formlayout__row__label label {
+        text-align: left !important;
+        display: inline-block !important;
       }
       #${MODAL_ID} .ui-dialog-content {
         padding: 20px 24px;
@@ -199,6 +204,17 @@
           button.click();
           return true;
         }
+      }
+    }
+    return false;
+  }
+
+  function isDialogVisible(dialogTitle) {
+    const dialogs = document.querySelectorAll('.ui-dialog');
+    for (const dialog of dialogs) {
+      const titleEl = dialog.querySelector('.ui-dialog-title');
+      if (titleEl && titleEl.textContent.trim().includes(dialogTitle)) {
+        return dialog.style.display !== 'none';
       }
     }
     return false;
@@ -349,8 +365,7 @@
 
       case 20: // Wait for Modal Close & Click "Zur Planung"
         updateStatusBar(2, 11, 'Schritt 2d: Navigiere zur Planung...');
-        const modalOpen = document.querySelector('.ui-dialog:has(.ui-dialog-title:contains("Plan beauftragen"))');
-        if (!modalOpen || modalOpen.style.display === 'none') {
+        if (!isDialogVisible('Plan beauftragen')) {
           const zurPlanungBtn = findElementByText('a.treatment-action', 'Zur Planung');
           if (zurPlanungBtn) {
             zurPlanungBtn.click();
@@ -594,7 +609,7 @@
           <span class="ui-dialog-title" id="tm-dialog-title">XML Daten eingeben</span>
           <button type="button" class="ui-button ui-corner-all ui-icon-only ui-dialog-titlebar-close" title="Schließen" aria-label="Schließen">
             <span class="ui-button-icon ui-icon ui-icon-closethick"></span>
-            <span class="ui-button-icon-space"> </span>Schließen
+            <span class="ui-button-icon-space"> </span>
           </button>
         </div>
         <div class="ui-dialog-content ui-widget-content">
@@ -634,7 +649,7 @@
               <label for="tm-textarea-desc">Beschreibung</label>
             </div>
             <div class="pxs-formlayout__row__field">
-              <textarea id="tm-textarea-desc" class="ui-corner-all ui-widget ui-widget-content" placeholder="z.B. OK Proth. gebrochen"></textarea>
+              <textarea id="tm-textarea-desc" class="ui-corner-all ui-widget ui-widget-content" placeholder="Notizen für Planungsauftrag (z.B. OK Proth. gebrochen)"></textarea>
             </div>
           </div>
           <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 14px;">
