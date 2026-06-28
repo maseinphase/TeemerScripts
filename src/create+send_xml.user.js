@@ -32,7 +32,6 @@
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
     DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override',
-    LAB_CONFIRMED_NAME: 'tm_xml_lab_confirmed_name',
     LAST_CHECK: 'tm_xml_last_check',
     LAST_ERROR: 'tm_xml_last_error'
   };
@@ -635,7 +634,6 @@
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
     sessionStorage.removeItem(STATE_KEYS.DEV_EMAIL_OVERRIDE);
-    sessionStorage.removeItem(STATE_KEYS.LAB_CONFIRMED_NAME);
     sessionStorage.removeItem(STATE_KEYS.LAST_CHECK);
     sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
     clearRetryState();
@@ -867,18 +865,16 @@
         updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
         if (isDialogVisible('Laborauftrag erstellen')) {
           const selectedLabEl = document.querySelector('select[name*="labChoice"]');
-          const confirmedLabName = sessionStorage.getItem(STATE_KEYS.LAB_CONFIRMED_NAME) || '';
-          const selectedText = selectedLabEl ? getSelectedOptionText(selectedLabEl) : '';
-          const visibleText = selectedLabEl ? getSelectmenuVisibleText(selectedLabEl) : '';
-          console.log(`[Teemer Optimizer] Step 5b debug -> confirmed="${confirmedLabName || '-'}", hidden="${selectedText || '-'}", visible="${visibleText || '-'}"`);
           if (!runStepCheck(
             51,
             'Labor vor Erstellen korrekt',
             () => {
-              if (!confirmedLabName) return false;
-              const hiddenMatches = !selectedText || isLabNameMatch(selectedText, confirmedLabName);
-              const visibleMatches = !visibleText || isLabNameMatch(visibleText, confirmedLabName);
-              return isLabNameMatch(confirmedLabName, labName) && hiddenMatches && visibleMatches;
+              if (!selectedLabEl) return false;
+              const selectedText = getSelectedOptionText(selectedLabEl);
+              const visibleText = getSelectmenuVisibleText(selectedLabEl);
+              const hiddenMatches = isLabNameMatch(selectedText, labName);
+              const visibleMatches = !visibleText || isLabNameMatch(visibleText, labName);
+              return hiddenMatches && visibleMatches;
             },
             `Labor ist vor Erstellen nicht korrekt gesetzt (erwartet "${labName}").`,
             { onFailStep: 50 }
@@ -1006,6 +1002,7 @@
             });
             console.log('[Teemer Optimizer] Step 10: mailBtn found:', !!mailBtn);
             if (mailBtn) {
+              console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button.');
               mailBtn.click();
               advanceStep(110);
             }
@@ -1014,32 +1011,31 @@
         break;
 
       case 110:
-        {
-          const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
-          const textElementSelect = document.querySelector('select[name="textElement"]');
+        const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
+        const textElementSelect = document.querySelector('select[name="textElement"]');
 
-          if (favoritesSelect && textElementSelect) {
-            updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
+        if (favoritesSelect && textElementSelect) {
+          updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
 
-            // 11a. Check if favorites choice has the lab selected.
-            const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
-            if (!favText.includes(labName)) {
-              console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
-              const selected = selectDropdownOption(favoritesSelect, labName);
-              if (!selected) break;
-            }
-
-            if (!runStepCheck(
-              110,
-              'Favorit/Labor gesetzt',
-              () => isLabNameMatch(getSelectedOptionText(favoritesSelect), labName),
-              `Favoriten-Dropdown steht nicht auf "${labName}".`
-            )) {
-              break;
-            }
-
-            advanceStep(111);
+          // 11a. Check if favorites choice has the lab selected.
+          const favText = favoritesSelect.options[favoritesSelect.selectedIndex].text;
+          if (!favText.includes(labName)) {
+            console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
+            const selected = selectDropdownOption(favoritesSelect, labName);
+            if (!selected) break;
+            break;
           }
+
+          if (!runStepCheck(
+            110,
+            'Favorit/Labor gesetzt',
+            () => isLabNameMatch(getSelectedOptionText(favoritesSelect), labName),
+            `Favoriten-Dropdown steht nicht auf "${labName}".`
+          )) {
+            break;
+          }
+
+          advanceStep(111);
         }
         break;
 
@@ -1090,59 +1086,61 @@
         break;
 
       case 112:
-        if (emailStarted) break;
-        updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
+        {
+          if (emailStarted) break;
+          updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
 
-        const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
-        if (!runStepCheck(
-          112,
-          'Auftragsnummer vorhanden',
-          () => !!orderNum && orderNum.trim().length > 0,
-          'Keine Auftragsnummer vorhanden. E-Mail wird nicht versendet.'
-        )) {
-          break;
-        }
-
-        // Mark email processing as started so we don't repeat the configuration logic
-        emailStarted = true;
-
-        // Debug Mode / Test Recipient Override
-        // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
-        const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
-        setTimeout(() => {
-          if (isDevEmailOverride) {
-            const receiverInput = document.querySelector('input[name="receiver"]');
-            if (receiverInput) {
-              receiverInput.value = 'm-seeland@gmx.net';
-              triggerEvents(receiverInput, ['input', 'change']);
-              console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
-            }
+          const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
+          if (!runStepCheck(
+            112,
+            'Auftragsnummer vorhanden',
+            () => !!orderNum && orderNum.trim().length > 0,
+            'Keine Auftragsnummer vorhanden. E-Mail wird nicht versendet.'
+          )) {
+            break;
           }
 
-          // 11c. Programmatically clear "Anamnese.pdf" from Kendo MultiSelect
-          const $attachments = window.jQuery('select[name="attachments"]');
-          const multiSelect = $attachments.data('kendoMultiSelect');
-          if (multiSelect) {
-            const dataItems = multiSelect.dataItems();
-            const valuesToKeep = [];
-            for (let i = 0; i < dataItems.length; i++) {
-              if (dataItems[i].externalFileName !== 'Anamnese.pdf') {
-                valuesToKeep.push(dataItems[i].businessKey);
+          // Mark email processing as started so we don't repeat the configuration logic
+          emailStarted = true;
+
+          // Debug Mode / Test Recipient Override
+          // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
+          const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
+          setTimeout(() => {
+            if (isDevEmailOverride) {
+              const receiverInput = document.querySelector('input[name="receiver"]');
+              if (receiverInput) {
+                receiverInput.value = 'm-seeland@gmx.net';
+                triggerEvents(receiverInput, ['input', 'change']);
+                console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
               }
             }
-            multiSelect.value(valuesToKeep);
-            multiSelect.trigger('change');
-          }
 
-          // 11d. Insert order number in Kendo Editor after template text loads
-          const $editor = window.jQuery('textarea[name="wrapper:message"]');
-          const editor = $editor.data('kendoEditor');
-          if (editor) {
-            appendOrderNumberToEditor(editor, orderNum);
-          } else {
-            console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
-          }
-        }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
+            // 11c. Programmatically clear "Anamnese.pdf" from Kendo MultiSelect
+            const $attachments = window.jQuery('select[name="attachments"]');
+            const multiSelect = $attachments.data('kendoMultiSelect');
+            if (multiSelect) {
+              const dataItems = multiSelect.dataItems();
+              const valuesToKeep = [];
+              for (let i = 0; i < dataItems.length; i++) {
+                if (dataItems[i].externalFileName !== 'Anamnese.pdf') {
+                  valuesToKeep.push(dataItems[i].businessKey);
+                }
+              }
+              multiSelect.value(valuesToKeep);
+              multiSelect.trigger('change');
+            }
+
+            // 11d. Insert order number in Kendo Editor after template text loads
+            const $editor = window.jQuery('textarea[name="wrapper:message"]');
+            const editor = $editor.data('kendoEditor');
+            if (editor) {
+              appendOrderNumberToEditor(editor, orderNum);
+            } else {
+              console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
+            }
+          }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
+        }
         break;
     }
   }
