@@ -527,23 +527,33 @@
       case 5:
         updateStatusBar(5, 11, 'Schritt 5: Labor auswählen...');
         
-        // Find and highlight "Herstellungslabor" / "Labor" label in the dialog
+        // Find and highlight strictly "Labor" label in the dialog (ignoring Laborauftragsart)
         const modalLabels = Array.from(document.querySelectorAll('.ui-dialog label'));
         const labLabel = modalLabels.find(el => {
-          const text = el.textContent.trim().toLowerCase();
-          return text.includes('labor') || text.includes('herstellungslabor');
+          const text = el.textContent.replace(':', '').trim().toLowerCase();
+          return text === 'labor';
         });
         if (labLabel) {
           labLabel.style.backgroundColor = 'yellow';
           labLabel.style.color = 'black';
           labLabel.style.border = '2px solid red';
           labLabel.style.padding = '2px';
-          console.log('[Teemer Optimizer] Highlighted the "Labor" label in the modal.');
+          console.log('[Teemer Optimizer] Highlighted the correct "Labor" label in the modal.');
         }
 
         console.log(`[Teemer Optimizer] Step 5 - target lab name to select: "${labName}"`);
 
-        const labSelect = document.querySelector('select[name*="labChoice"]');
+        // Find the select element (try name attribute first, fallback to label's sibling row)
+        let labSelect = document.querySelector('select[name*="labChoice"]');
+        if (!labSelect && labLabel) {
+          const parentRow = labLabel.closest('.pxs-formlayout__row, .nubo-form-input-container, div');
+          if (parentRow) {
+            labSelect = parentRow.querySelector('select');
+          }
+        }
+
+        console.log('[Teemer Optimizer] labSelect element located:', !!labSelect);
+
         if (labSelect) {
           const selected = selectDropdownOption(labSelect, labName);
           if (selected) {
