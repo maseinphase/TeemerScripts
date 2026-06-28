@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
+// @version      1.0.7
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -36,6 +36,7 @@
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
+  let emailStarted = false;
 
   // --- STYLING ---
   function injectStyles() {
@@ -296,6 +297,7 @@
     sessionStorage.removeItem(STATE_KEYS.STEP_TIMESTAMP);
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
+    emailStarted = false;
 
     const statusBar = document.getElementById(STATUS_BAR_ID);
     if (statusBar) {
@@ -559,11 +561,14 @@
         break;
 
       case 11:
-        updateStatusBar(11, 11, 'Schritt 11: E-Mail konfigurieren und absenden...');
         const favoritesSelect = document.querySelector('select[name*="mailFavoritesChoice"]');
         const textElementSelect = document.querySelector('select[name="textElement"]');
 
         if (favoritesSelect && textElementSelect) {
+          if (emailStarted) break;
+          emailStarted = true;
+          updateStatusBar(11, 11, 'Schritt 11: E-Mail konfigurieren und absenden...');
+
           // 11a. Select lab in favorites dropdown
           let favoriteFound = false;
           for (let i = 0; i < favoritesSelect.options.length; i++) {
@@ -619,7 +624,7 @@
 
             // 11d. Insert order number in Kendo Editor
             const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
-            const $editor = window.jQuery('#id13ce');
+            const $editor = window.jQuery('textarea[name="wrapper:message"]');
             const editor = $editor.data('kendoEditor');
             if (editor) {
               let currentText = editor.value();
@@ -631,8 +636,10 @@
               if (sent) {
                 stopAutomation(true);
               }
+            } else {
+              console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
             }
-          }, 800); // 800ms delay to let Wicket process the favorites change AJAX before overriding receiver
+          }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
         }
         break;
     }
