@@ -242,6 +242,35 @@
     return false;
   }
 
+  function selectDropdownOption(selectEl, textToMatch) {
+    if (!selectEl) return false;
+    let foundIndex = -1;
+    for (let i = 0; i < selectEl.options.length; i++) {
+      if (selectEl.options[i].text.includes(textToMatch)) {
+        foundIndex = i;
+        break;
+      }
+    }
+    if (foundIndex !== -1) {
+      const optionVal = selectEl.options[foundIndex].value;
+      if (window.jQuery && typeof window.jQuery.fn.selectmenu === 'function') {
+        const $select = window.jQuery(selectEl);
+        $select.val(optionVal);
+        try {
+          $select.selectmenu('refresh');
+        } catch (e) {
+          console.warn('[Teemer Optimizer] jQuery UI selectmenu refresh failed, falling back to native events.', e);
+        }
+        $select.trigger('change');
+      } else {
+        selectEl.selectedIndex = foundIndex;
+        triggerEvents(selectEl, ['change']);
+      }
+      return true;
+    }
+    return false;
+  }
+
   // --- STATE CONTROLLER / ENGINE ---
 
   function updateStatusBar(step, totalSteps, msg) {
@@ -440,17 +469,8 @@
         updateStatusBar(5, 11, 'Schritt 5: Labor auswählen...');
         const labSelect = document.querySelector('select[name*="labChoice"]');
         if (labSelect) {
-          // Select manufacturing lab option
-          let optionSelected = false;
-          for (let i = 0; i < labSelect.options.length; i++) {
-            if (labSelect.options[i].text.includes(labName)) {
-              labSelect.selectedIndex = i;
-              optionSelected = true;
-              break;
-            }
-          }
-          if (optionSelected) {
-            triggerEvents(labSelect, ['change']);
+          const selected = selectDropdownOption(labSelect, labName);
+          if (selected) {
             // Click "Erstellen" button in modal
             const created = clickDialogButton('Laborauftrag erstellen', 'Erstellen');
             if (created) {
@@ -570,30 +590,10 @@
           updateStatusBar(11, 11, 'Schritt 11: E-Mail konfigurieren und absenden...');
 
           // 11a. Select lab in favorites dropdown
-          let favoriteFound = false;
-          for (let i = 0; i < favoritesSelect.options.length; i++) {
-            if (favoritesSelect.options[i].text.includes(labName)) {
-              favoritesSelect.selectedIndex = i;
-              favoriteFound = true;
-              break;
-            }
-          }
-          if (favoriteFound) {
-            triggerEvents(favoritesSelect, ['change']);
-          }
+          selectDropdownOption(favoritesSelect, labName);
 
           // 11b. Select XML text block
-          let textBlockFound = false;
-          for (let i = 0; i < textElementSelect.options.length; i++) {
-            if (textElementSelect.options[i].text.includes('XML')) {
-              textElementSelect.selectedIndex = i;
-              textBlockFound = true;
-              break;
-            }
-          }
-          if (textBlockFound) {
-            triggerEvents(textElementSelect, ['change']);
-          }
+          selectDropdownOption(textElementSelect, 'XML');
 
           // Debug Mode / Test Recipient Override
           // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
