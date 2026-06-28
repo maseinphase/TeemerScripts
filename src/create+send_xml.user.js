@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.7
+// @version      1.0.8
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -30,7 +30,8 @@
     PATIENT_NAME: 'tm_xml_patient_name',
     STEP_TIMESTAMP: 'tm_xml_step_timestamp',
     DEBUG_MODE: 'tm_xml_debug_mode',
-    PAUSED: 'tm_xml_paused'
+    PAUSED: 'tm_xml_paused',
+    DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override'
   };
 
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
@@ -271,6 +272,44 @@
     return false;
   }
 
+  function appendOrderNumberToEditor(editor, orderNum, attempts = 0) {
+    const currentText = editor.value().trim();
+    
+    // Check if the template text has loaded (should contain 'XML', 'anbei', 'Hallo', or 'Patient',
+    // and should not just be empty or contain only our signature)
+    const hasTemplateText = currentText.length > 0 && 
+                            (currentText.includes('XML') || currentText.includes('anbei') || currentText.includes('Hallo') || currentText.includes('Patient'));
+    
+    if (hasTemplateText) {
+      if (!currentText.includes(orderNum)) {
+        editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
+        editor.trigger('change');
+        console.log('[Teemer Optimizer] XML order number successfully appended to template text.');
+      }
+      
+      const sent = clickDialogButton('Neue Nachricht', 'Versenden');
+      if (sent) {
+        stopAutomation(true);
+      }
+    } else {
+      if (attempts < 10) { // Max 10 attempts (5 seconds total)
+        console.log('[Teemer Optimizer] Waiting for editor template text to load... Attempt:', attempts + 1);
+        setTimeout(() => {
+          appendOrderNumberToEditor(editor, orderNum, attempts + 1);
+        }, 500);
+      } else {
+        console.log('[Teemer Optimizer] Timeout waiting for template text. Appending order number directly.');
+        editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
+        editor.trigger('change');
+        
+        const sent = clickDialogButton('Neue Nachricht', 'Versenden');
+        if (sent) {
+          stopAutomation(true);
+        }
+      }
+    }
+  }
+
   // --- STATE CONTROLLER / ENGINE ---
 
   function updateStatusBar(step, totalSteps, msg) {
@@ -326,6 +365,7 @@
     sessionStorage.removeItem(STATE_KEYS.STEP_TIMESTAMP);
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
+    sessionStorage.removeItem(STATE_KEYS.DEV_EMAIL_OVERRIDE);
     emailStarted = false;
 
     const statusBar = document.getElementById(STATUS_BAR_ID);
@@ -597,13 +637,14 @@
 
           // Debug Mode / Test Recipient Override
           // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
+          const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
           setTimeout(() => {
-            if (isDebugMode) {
+            if (isDevEmailOverride) {
               const receiverInput = document.querySelector('input[name="receiver"]');
               if (receiverInput) {
                 receiverInput.value = 'm-seeland@gmx.net';
                 triggerEvents(receiverInput, ['input', 'change']);
-                console.log('[Teemer Optimizer] Debug Mode Active: Recipient overrode to m-seeland@gmx.net');
+                console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
               }
             }
 
@@ -622,20 +663,12 @@
               multiSelect.trigger('change');
             }
 
-            // 11d. Insert order number in Kendo Editor
+            // 11d. Insert order number in Kendo Editor after template text loads
             const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
             const $editor = window.jQuery('textarea[name="wrapper:message"]');
             const editor = $editor.data('kendoEditor');
             if (editor) {
-              let currentText = editor.value();
-              editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
-              editor.trigger('change');
-
-              // 11e. Click "Versenden" dialog button
-              const sent = clickDialogButton('Neue Nachricht', 'Versenden');
-              if (sent) {
-                stopAutomation(true);
-              }
+              appendOrderNumberToEditor(editor, orderNum);
             } else {
               console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
             }
@@ -705,6 +738,10 @@
             <input type="checkbox" id="tm-checkbox-debug" checked style="width:auto; margin:0;" />
             <label for="tm-checkbox-debug" style="margin-bottom:0; cursor:pointer;">Debug Mode (Schrittweise)</label>
           </div>
+          <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 10px;">
+            <input type="checkbox" id="tm-checkbox-dev-email" checked style="width:auto; margin:0;" />
+            <label for="tm-checkbox-dev-email" style="margin-bottom:0; cursor:pointer;">E-Mail an dev anstelle Labor</label>
+          </div>
         </div>
         <div class="ui-dialog-buttonpane ui-widget-content ui-helper-clearfix">
           <div class="ui-dialog-buttonset">
@@ -732,12 +769,14 @@
       const laborSelect = modal.querySelector('#tm-select-labor');
       const descTextarea = modal.querySelector('#tm-textarea-desc');
       const debugCheckbox = modal.querySelector('#tm-checkbox-debug');
+      const devEmailCheckbox = modal.querySelector('#tm-checkbox-dev-email');
 
       const planVal = planSelect.value;
       const planText = planSelect.options[planSelect.selectedIndex].text;
       const labVal = laborSelect.value;
       const descVal = descTextarea.value.trim() || 'XML Plan';
       const isDebugChecked = debugCheckbox ? debugCheckbox.checked : false;
+      const isDevEmailChecked = devEmailCheckbox ? devEmailCheckbox.checked : false;
       const patient = getPatientName();
 
       if (!patient) {
@@ -754,6 +793,7 @@
       sessionStorage.setItem(STATE_KEYS.DESCRIPTION, descVal);
       sessionStorage.setItem(STATE_KEYS.PATIENT_NAME, patient);
       sessionStorage.setItem(STATE_KEYS.DEBUG_MODE, String(isDebugChecked));
+      sessionStorage.setItem(STATE_KEYS.DEV_EMAIL_OVERRIDE, String(isDevEmailChecked));
       sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
       sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
 
@@ -819,6 +859,10 @@
   }
 
   function injectXmlButton() {
+    // Only inject on the treatment dashboard page where "Plan beauftragen" is present
+    const planBeauftragenBtn = findElementByText('a', 'Plan beauftragen');
+    if (!planBeauftragenBtn) return;
+
     const aktionenLegend = findElementByText('fieldset.nubo-frm__fieldset legend', 'Aktionen', false);
     if (!aktionenLegend) return;
 
