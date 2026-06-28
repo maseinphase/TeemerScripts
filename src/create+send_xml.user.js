@@ -31,7 +31,7 @@
     STEP_TIMESTAMP: 'tm_xml_step_timestamp',
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
-    DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override',
+    MANUAL_EMAIL_SEND: 'tm_xml_manual_email_send',
     LAST_CHECK: 'tm_xml_last_check',
     LAST_ERROR: 'tm_xml_last_error'
   };
@@ -501,13 +501,26 @@
     return true;
   }
 
-  function appendOrderNumberToEditor(editor, orderNum, attempts = 0) {
+  function appendOrderNumberToEditor(editor, orderNum, manualSend = true, attempts = 0) {
     const currentText = editor.value().trim();
     
     // Check if the template text has loaded (should contain 'XML', 'anbei', 'Hallo', or 'Patient',
     // and should not just be empty or contain only our signature)
     const hasTemplateText = currentText.length > 0 && 
                             (currentText.includes('XML') || currentText.includes('anbei') || currentText.includes('Hallo') || currentText.includes('Patient'));
+
+    function finalizeEmailSend() {
+      if (manualSend) {
+        console.log('[Teemer Optimizer] Manual send is enabled. Please click "Versenden" manually.');
+        stopAutomation(true);
+        return;
+      }
+
+      const sent = clickDialogButton('Neue Nachricht', 'Versenden');
+      if (sent) {
+        stopAutomation(true);
+      }
+    }
     
     if (hasTemplateText) {
       if (!currentText.includes(orderNum)) {
@@ -515,26 +528,20 @@
         editor.trigger('change');
         console.log('[Teemer Optimizer] XML order number successfully appended to template text.');
       }
-      
-      const sent = clickDialogButton('Neue Nachricht', 'Versenden');
-      if (sent) {
-        stopAutomation(true);
-      }
+
+      finalizeEmailSend();
     } else {
       if (attempts < 10) { // Max 10 attempts (5 seconds total)
         console.log('[Teemer Optimizer] Waiting for editor template text to load... Attempt:', attempts + 1);
         setTimeout(() => {
-          appendOrderNumberToEditor(editor, orderNum, attempts + 1);
+          appendOrderNumberToEditor(editor, orderNum, manualSend, attempts + 1);
         }, 500);
       } else {
         console.log('[Teemer Optimizer] Timeout waiting for template text. Appending order number directly.');
         editor.value(currentText + `<br/><br/>Auftragsnummer: ${orderNum}`);
         editor.trigger('change');
-        
-        const sent = clickDialogButton('Neue Nachricht', 'Versenden');
-        if (sent) {
-          stopAutomation(true);
-        }
+
+        finalizeEmailSend();
       }
     }
   }
@@ -662,7 +669,7 @@
     sessionStorage.removeItem(STATE_KEYS.STEP_TIMESTAMP);
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
-    sessionStorage.removeItem(STATE_KEYS.DEV_EMAIL_OVERRIDE);
+    sessionStorage.removeItem(STATE_KEYS.MANUAL_EMAIL_SEND);
     sessionStorage.removeItem(STATE_KEYS.LAST_CHECK);
     sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
     clearRetryState();
@@ -1165,9 +1172,7 @@
           // Mark email processing as started so we don't repeat the configuration logic
           emailStarted = true;
 
-          // Debug Mode / Test Recipient Override
-          // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
-          const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
+          const isManualEmailSend = sessionStorage.getItem(STATE_KEYS.MANUAL_EMAIL_SEND) !== 'false';
           setTimeout(() => {
             // Set email subject to "XML"
             const subjectInput = document.querySelector('input[name="subject"]');
@@ -1175,15 +1180,6 @@
               subjectInput.value = 'XML';
               triggerEvents(subjectInput, ['input', 'change']);
               console.log('[Teemer Optimizer] Email subject set to: XML');
-            }
-
-            if (isDevEmailOverride) {
-              const receiverInput = document.querySelector('input[name="receiver"]');
-              if (receiverInput) {
-                receiverInput.value = 'm-seeland@gmx.net';
-                triggerEvents(receiverInput, ['input', 'change']);
-                console.log('[Teemer Optimizer] Dev Email Override Active: Recipient overrode to m-seeland@gmx.net');
-              }
             }
 
             // 11c. Programmatically clear "Anamnese.pdf" from Kendo MultiSelect
@@ -1205,11 +1201,11 @@
             const $editor = window.jQuery('textarea[name="wrapper:message"]');
             const editor = $editor.data('kendoEditor');
             if (editor) {
-              appendOrderNumberToEditor(editor, orderNum);
+              appendOrderNumberToEditor(editor, orderNum, isManualEmailSend);
             } else {
               console.log('[Teemer Optimizer] Kendo Editor not found on textarea[name="wrapper:message"]');
             }
-          }, 1000); // 1000ms delay to let Wicket process the favorites change AJAX before overriding receiver
+          }, 1000); // 1000ms delay to let Wicket process favorites/text block AJAX updates
         }
         break;
     }
@@ -1276,8 +1272,8 @@
             <label for="tm-checkbox-debug" style="margin-bottom:0; cursor:pointer;">Debug Mode (Schrittweise)</label>
           </div>
           <div class="pxs-formlayout__row" style="display:flex; flex-direction:row; align-items:center; gap:8px; margin-top: 10px;">
-            <input type="checkbox" id="tm-checkbox-dev-email" style="width:auto; margin:0;" />
-            <label for="tm-checkbox-dev-email" style="margin-bottom:0; cursor:pointer;">E-Mail an dev anstelle Labor</label>
+            <input type="checkbox" id="tm-checkbox-dev-email" checked style="width:auto; margin:0;" />
+            <label for="tm-checkbox-dev-email" style="margin-bottom:0; cursor:pointer;">E-Mail manuell absenden</label>
           </div>
         </div>
         <div class="ui-dialog-buttonpane ui-widget-content ui-helper-clearfix">
@@ -1313,7 +1309,7 @@
       const labVal = laborSelect.value;
       const descVal = descTextarea.value.trim() || 'XML Plan';
       const isDebugChecked = debugCheckbox ? debugCheckbox.checked : false;
-      const isDevEmailChecked = devEmailCheckbox ? devEmailCheckbox.checked : false;
+      const isManualEmailChecked = devEmailCheckbox ? devEmailCheckbox.checked : true;
       const patient = getPatientName();
 
       if (!patient) {
@@ -1330,7 +1326,7 @@
       sessionStorage.setItem(STATE_KEYS.DESCRIPTION, descVal);
       sessionStorage.setItem(STATE_KEYS.PATIENT_NAME, patient);
       sessionStorage.setItem(STATE_KEYS.DEBUG_MODE, String(isDebugChecked));
-      sessionStorage.setItem(STATE_KEYS.DEV_EMAIL_OVERRIDE, String(isDevEmailChecked));
+      sessionStorage.setItem(STATE_KEYS.MANUAL_EMAIL_SEND, String(isManualEmailChecked));
       sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
       sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
 
