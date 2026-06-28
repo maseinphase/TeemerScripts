@@ -31,10 +31,13 @@
     STEP_TIMESTAMP: 'tm_xml_step_timestamp',
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
-    DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override'
+    DEV_EMAIL_OVERRIDE: 'tm_xml_dev_email_override',
+    LAST_CHECK: 'tm_xml_last_check',
+    LAST_ERROR: 'tm_xml_last_error'
   };
 
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
+  const MAX_STEP_RETRIES = 3;
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
   const DOM_SETTLE_DELAY_MS = 120;
@@ -230,6 +233,62 @@
     return false;
   }
 
+  function getRetryStorageKey(step) {
+    return `tm_xml_retry_${step}`;
+  }
+
+  function getStepRetryCount(step) {
+    return parseInt(sessionStorage.getItem(getRetryStorageKey(step)) || '0', 10);
+  }
+
+  function incrementStepRetryCount(step) {
+    const nextCount = getStepRetryCount(step) + 1;
+    sessionStorage.setItem(getRetryStorageKey(step), String(nextCount));
+    return nextCount;
+  }
+
+  function resetStepRetryCount(step) {
+    sessionStorage.removeItem(getRetryStorageKey(step));
+  }
+
+  function clearRetryState() {
+    const keysToDelete = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('tm_xml_retry_')) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach((key) => sessionStorage.removeItem(key));
+  }
+
+  function getSelectedOptionText(selectEl) {
+    if (!selectEl || selectEl.selectedIndex < 0 || !selectEl.options[selectEl.selectedIndex]) {
+      return '';
+    }
+    return selectEl.options[selectEl.selectedIndex].text.trim();
+  }
+
+  function getSelectmenuVisibleText(selectEl) {
+    if (!selectEl || !window.jQuery || typeof window.jQuery.fn.selectmenu !== 'function') {
+      return '';
+    }
+
+    try {
+      const $select = window.jQuery(selectEl);
+      const instance = $select.selectmenu('instance');
+      if (!instance) return '';
+
+      const widget = $select.selectmenu('widget');
+      if (!widget || widget.length === 0) return '';
+
+      const textEl = widget.find('.ui-selectmenu-text').first();
+      return textEl && textEl.length ? textEl.text().trim() : widget.text().trim();
+    } catch (e) {
+      return '';
+    }
+  }
+
   function selectDropdownOption(selectEl, textToMatch) {
     if (!selectEl) return false;
 
@@ -259,15 +318,57 @@
     const optionVal = selectEl.options[foundIndex].value;
     selectEl.selectedIndex = foundIndex;
     const selectId = selectEl.id;
+    const selectDebugId = selectId || selectEl.name || 'unknown';
     console.log(`[Teemer Optimizer] Select debug -> matched option index: ${foundIndex}, text: "${selectEl.options[foundIndex].text}", value: "${optionVal}"`);
+
+    function forceSelectmenuItemClick($select, targetText) {
+      try {
+        const instance = $select.selectmenu('instance');
+        if (!instance) return false;
+
+        $select.selectmenu('open');
+        const menuWidget = $select.selectmenu('menuWidget');
+        if (!menuWidget || menuWidget.length === 0) {
+          console.warn('[Teemer Optimizer] Select debug -> menuWidget missing after open.');
+          return false;
+        }
+
+        const matchItem = menuWidget.find('.ui-menu-item-wrapper').filter((_, el) => {
+          return isLabNameMatch(el.textContent, targetText);
+        }).first();
+
+        if (!matchItem || matchItem.length === 0) {
+          console.warn(`[Teemer Optimizer] Select debug -> no menu item found for "${targetText}".`);
+          $select.selectmenu('close');
+          return false;
+        }
+
+        const itemText = matchItem.text().trim();
+        console.log(`[Teemer Optimizer] Select debug -> clicking visible menu item: "${itemText}"`);
+        matchItem.trigger('mouseenter');
+        matchItem.trigger('mousedown');
+        matchItem.trigger('mouseup');
+        matchItem.trigger('click');
+
+        const afterClickIndex = selectEl.selectedIndex;
+        const afterClickText = afterClickIndex >= 0 && selectEl.options[afterClickIndex]
+          ? selectEl.options[afterClickIndex].text
+          : '(none)';
+        console.log(`[Teemer Optimizer] Select debug -> after visible click selected: "${afterClickText}"`);
+        return isLabNameMatch(afterClickText, targetText);
+      } catch (e) {
+        console.warn('[Teemer Optimizer] Select debug -> forceSelectmenuItemClick failed.', e);
+        return false;
+      }
+    }
 
     // If selectmenu is expected (class pxs-dropdownchoice) but JQuery UI selectmenu is not yet initialized on this element,
     // return false to wait for Wicket to initialize it.
-    if (window.jQuery && selectId && selectEl.classList.contains('pxs-dropdownchoice')) {
+    if (window.jQuery && selectEl.classList.contains('pxs-dropdownchoice')) {
       try {
         const $select = window.jQuery(selectEl);
         if (!$select.selectmenu('instance')) {
-          console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on #${selectId}...`);
+          console.log(`[Teemer Optimizer] Waiting for JQuery UI selectmenu initialization on ${selectDebugId}...`);
           return false;
         }
       } catch (e) {
@@ -276,12 +377,12 @@
     }
 
     // Try jQuery UI selectmenu widget direct update and callback execution
-    if (window.jQuery && selectId && typeof window.jQuery.fn.selectmenu === 'function') {
+    if (window.jQuery && typeof window.jQuery.fn.selectmenu === 'function') {
       try {
         const $select = window.jQuery(selectEl);
         const widgetInstance = $select.selectmenu('instance');
         if (widgetInstance) {
-          console.log(`[Teemer Optimizer] Updating JQuery UI selectmenu #${selectId} programmatically to: ${textToMatch}`);
+          console.log(`[Teemer Optimizer] Updating JQuery UI selectmenu ${selectDebugId} programmatically to: ${textToMatch}`);
           $select.val(optionVal);
           $select.selectmenu('refresh');
           
@@ -297,22 +398,36 @@
               }
             };
             changeCallback.call(selectEl, { target: selectEl, type: 'selectmenuchange' }, ui);
-            console.log(`[Teemer Optimizer] Executed Wicket selectmenu change callback for #${selectId}`);
+            console.log(`[Teemer Optimizer] Executed Wicket selectmenu change callback for ${selectDebugId}`);
             const afterIndex = selectEl.selectedIndex;
             const afterText = afterIndex >= 0 && selectEl.options[afterIndex]
               ? selectEl.options[afterIndex].text
               : '(none)';
             console.log(`[Teemer Optimizer] Select debug -> after selected (selectmenu path): "${afterText}"`);
+
+            // Some Teemer flows only persist when the visible selectmenu item is clicked.
+            const forceClicked = forceSelectmenuItemClick($select, textToMatch);
+            if (forceClicked) {
+              console.log('[Teemer Optimizer] Select debug -> active menu click confirmed selection.');
+              return true;
+            }
+
+            return isLabNameMatch(afterText, textToMatch);
+          }
+
+          // No change callback present: still try active menu click to mimic user behavior.
+          const forceClicked = forceSelectmenuItemClick($select, textToMatch);
+          if (forceClicked) {
             return true;
           }
         }
       } catch (e) {
-        console.warn(`[Teemer Optimizer] Direct selectmenu update failed for #${selectId}, falling back to native event.`, e);
+        console.warn(`[Teemer Optimizer] Direct selectmenu update failed for ${selectDebugId}, falling back to native event.`, e);
       }
     }
 
     // Fallback: update natively if selectmenu is not present or direct execution failed
-    console.log(`[Teemer Optimizer] Falling back to native event trigger for #${selectId || 'unknown'}`);
+    console.log(`[Teemer Optimizer] Falling back to native event trigger for ${selectDebugId}`);
     triggerEvents(selectEl, ['change', 'input']);
     const afterIndex = selectEl.selectedIndex;
     const afterText = afterIndex >= 0 && selectEl.options[afterIndex]
@@ -403,6 +518,53 @@
     }
   }
 
+  function runStepCheck(step, checkName, predicate, failMessage, options = {}) {
+    let passed = false;
+    try {
+      passed = Boolean(predicate());
+    } catch (error) {
+      console.warn(`[Teemer Optimizer] Check "${checkName}" threw an error:`, error);
+      passed = false;
+    }
+
+    if (passed) {
+      sessionStorage.setItem(STATE_KEYS.LAST_CHECK, `${step}:${checkName}:ok`);
+      sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
+      resetStepRetryCount(step);
+      console.log(`[Teemer Optimizer] Check OK (${checkName}) on step ${step}.`);
+      return true;
+    }
+
+    const retryCount = incrementStepRetryCount(step);
+    const displayStep = getDisplayStep(step);
+    const stepLabel = getDebugStepLabel(step);
+    sessionStorage.setItem(STATE_KEYS.LAST_CHECK, `${step}:${checkName}:fail`);
+    sessionStorage.setItem(STATE_KEYS.LAST_ERROR, failMessage);
+
+    console.warn(`[Teemer Optimizer] Check FAILED (${checkName}) on step ${stepLabel}: ${failMessage}. Retry ${retryCount}/${MAX_STEP_RETRIES}`);
+
+    if (retryCount >= MAX_STEP_RETRIES) {
+      stopAutomation(false, `Schritt ${stepLabel} fehlgeschlagen: ${failMessage}`);
+      return false;
+    }
+
+    const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
+    if (isDebugMode) {
+      sessionStorage.setItem(STATE_KEYS.PAUSED, 'true');
+      updateStatusBar(displayStep, 11, `Check fehlgeschlagen (${checkName}) ${retryCount}/${MAX_STEP_RETRIES}. Bitte prüfen.`);
+    } else {
+      updateStatusBar(displayStep, 11, `Check fehlgeschlagen (${checkName}) ${retryCount}/${MAX_STEP_RETRIES}. Wiederhole...`);
+    }
+
+    sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+
+    if (typeof options.onFailStep === 'number' && options.onFailStep !== step) {
+      advanceStep(options.onFailStep);
+    }
+
+    return false;
+  }
+
   function getDisplayStep(step) {
     if (step === 20 || step === 21) return 2;
     if (step === 50 || step === 51) return 5;
@@ -437,6 +599,9 @@
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
     sessionStorage.removeItem(STATE_KEYS.DEV_EMAIL_OVERRIDE);
+    sessionStorage.removeItem(STATE_KEYS.LAST_CHECK);
+    sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
+    clearRetryState();
     emailStarted = false;
 
     const statusBar = document.getElementById(STATUS_BAR_ID);
@@ -455,6 +620,7 @@
   function advanceStep(nextStep) {
     sessionStorage.setItem(STATE_KEYS.STEP, String(nextStep));
     sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
+    resetStepRetryCount(nextStep);
     console.log(`[Teemer Optimizer] Advancing to Step ${nextStep}`);
 
     const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
@@ -550,6 +716,9 @@
         updateStatusBar(2, 11, 'Schritt 2d: Navigiere zur Planung...');
         if (!isDialogVisible('Plan beauftragen')) {
           const zurPlanungBtn = findElementByText('a.treatment-action', 'Zur Planung');
+          if (!runStepCheck(20, 'Zur Planung sichtbar', () => !!zurPlanungBtn, 'Button "Zur Planung" wurde nach Plan-Erstellung nicht gefunden.')) {
+            break;
+          }
           if (zurPlanungBtn) {
             zurPlanungBtn.click();
             advanceStep(3);
@@ -625,6 +794,21 @@
         if (labSelect) {
           const selected = selectDropdownOption(labSelect, labName);
           if (selected) {
+            const selectedText = getSelectedOptionText(labSelect);
+            const visibleText = getSelectmenuVisibleText(labSelect);
+            const isConfirmed = runStepCheck(
+              50,
+              'Laborauswahl bestätigt',
+              () => {
+                const hiddenMatches = isLabNameMatch(selectedText, labName);
+                const visibleMatches = !visibleText || isLabNameMatch(visibleText, labName);
+                return hiddenMatches && visibleMatches;
+              },
+              `Labor nicht gesetzt. Hidden: "${selectedText || '-'}", Visible: "${visibleText || '-'}", erwartet: "${labName}".`
+            );
+            if (!isConfirmed) {
+              break;
+            }
             advanceStep(51);
           }
         }
@@ -633,6 +817,24 @@
       case 51:
         updateStatusBar(5, 11, 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...');
         if (isDialogVisible('Laborauftrag erstellen')) {
+          const selectedLabEl = document.querySelector('select[name*="labChoice"]');
+          if (!runStepCheck(
+            51,
+            'Labor vor Erstellen korrekt',
+            () => {
+              if (!selectedLabEl) return false;
+              const selectedText = getSelectedOptionText(selectedLabEl);
+              const visibleText = getSelectmenuVisibleText(selectedLabEl);
+              const hiddenMatches = isLabNameMatch(selectedText, labName);
+              const visibleMatches = !visibleText || isLabNameMatch(visibleText, labName);
+              return hiddenMatches && visibleMatches;
+            },
+            `Labor ist vor Erstellen nicht korrekt gesetzt (erwartet "${labName}").`,
+            { onFailStep: 50 }
+          )) {
+            break;
+          }
+
           const created = clickDialogButton('Laborauftrag erstellen', 'Erstellen');
           if (created) {
             advanceStep(6);
@@ -693,11 +895,23 @@
             const numSpan = siblingTd.querySelector('span');
             const orderNum = (numSpan ? numSpan.textContent : siblingTd.textContent).trim();
             if (orderNum) {
+              if (!runStepCheck(
+                8,
+                'Auftragsnummer plausibel',
+                () => /^[A-Za-z0-9\-/.]{4,}$/.test(orderNum),
+                `Auftragsnummer ist unplausibel: "${orderNum}".`
+              )) {
+                break;
+              }
+
               sessionStorage.setItem(STATE_KEYS.ORDER_NUMBER, orderNum);
               console.log(`[Teemer Optimizer] Extracted Order Number: ${orderNum}`);
 
               // Navigate back to "Behandlung" via subheader breadcrumbs
               const behBreadcrumb = document.querySelector('a.nav__item__trigger[title^="Beh:"]');
+              if (!runStepCheck(8, 'Breadcrumb Behandlung vorhanden', () => !!behBreadcrumb, 'Rücknavigation zur Behandlung nicht möglich (Breadcrumb fehlt).')) {
+                break;
+              }
               if (behBreadcrumb) {
                 behBreadcrumb.click();
                 advanceStep(9);
@@ -762,6 +976,16 @@
             console.log(`[Teemer Optimizer] Step 11: Selecting favorite: ${labName}`);
             const selected = selectDropdownOption(favoritesSelect, labName);
             if (!selected) break;
+            break;
+          }
+
+          if (!runStepCheck(
+            110,
+            'Favorit/Labor gesetzt',
+            () => isLabNameMatch(getSelectedOptionText(favoritesSelect), labName),
+            `Favoriten-Dropdown steht nicht auf "${labName}".`
+          )) {
+            break;
           }
 
           advanceStep(111);
@@ -791,7 +1015,23 @@
               console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
               const selected = selectDropdownOption(textElementSelect, 'XML');
               if (!selected) break;
+              break;
             }
+          }
+
+          if (!runStepCheck(
+            111,
+            'XML Textbaustein geladen',
+            () => {
+              const textElementText = getSelectedOptionText(textElementSelect);
+              const editorTextNow = editor ? editor.value().trim() : '';
+              const templateLoaded = editorTextNow.length > 0 &&
+                (editorTextNow.includes('XML') || editorTextNow.includes('anbei') || editorTextNow.includes('Hallo') || editorTextNow.includes('Patient'));
+              return textElementText.includes('XML') || templateLoaded;
+            },
+            'XML Textbaustein wurde nicht geladen.'
+          )) {
+            break;
           }
 
           advanceStep(112);
@@ -802,6 +1042,16 @@
         {
           if (emailStarted) break;
           updateStatusBar(11, 11, 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...');
+
+          const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
+          if (!runStepCheck(
+            112,
+            'Auftragsnummer vorhanden',
+            () => !!orderNum && orderNum.trim().length > 0,
+            'Keine Auftragsnummer vorhanden. E-Mail wird nicht versendet.'
+          )) {
+            break;
+          }
 
           // Mark email processing as started so we don't repeat the configuration logic
           emailStarted = true;
@@ -835,7 +1085,6 @@
             }
 
             // 11d. Insert order number in Kendo Editor after template text loads
-            const orderNum = sessionStorage.getItem(STATE_KEYS.ORDER_NUMBER);
             const $editor = window.jQuery('textarea[name="wrapper:message"]');
             const editor = $editor.data('kendoEditor');
             if (editor) {
