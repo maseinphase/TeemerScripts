@@ -32,6 +32,7 @@
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
     MANUAL_EMAIL_SEND: 'tm_xml_manual_email_send',
+    MAIL_MODAL_WAIT_ATTEMPTS: 'tm_xml_mail_modal_wait_attempts',
     LAST_CHECK: 'tm_xml_last_check',
     LAST_ERROR: 'tm_xml_last_error'
   };
@@ -198,6 +199,31 @@
       const elText = el.textContent.trim();
       return contains ? elText.includes(text) : elText === text;
     });
+  }
+
+  function clickMailSendFromFirstDocument() {
+    const docsContainer = document.querySelector('.patient-docs');
+    console.log('[Teemer Optimizer] Step 10: docsContainer found:', !!docsContainer);
+    if (!docsContainer) return false;
+
+    const docs = Array.from(docsContainer.querySelectorAll('.workflow-item'));
+    console.log(`[Teemer Optimizer] Step 10: Found ${docs.length} documents in container.`);
+    const firstDoc = docs[0];
+    if (!firstDoc) return false;
+
+    const rawTarget = Array.from(firstDoc.querySelectorAll('[title="Datei per E-Mail versenden"], .imagefile-label')).find((el) => {
+      const title = (el.getAttribute('title') || '').trim();
+      const text = (el.textContent || '').trim();
+      return title === 'Datei per E-Mail versenden' || text.includes('E-Mail');
+    });
+
+    console.log('[Teemer Optimizer] Step 10: mailBtn found:', !!rawTarget);
+    if (!rawTarget) return false;
+
+    const clickTarget = rawTarget.closest('button, a, [role="button"], .ui-button') || rawTarget;
+    console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button target:', clickTarget.tagName, clickTarget.id || '(no id)');
+    clickTarget.click();
+    return true;
   }
 
   // Safe programmatic interaction with Wicket / JQuery dialog buttons
@@ -670,6 +696,7 @@
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
     sessionStorage.removeItem(STATE_KEYS.MANUAL_EMAIL_SEND);
+    sessionStorage.removeItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS);
     sessionStorage.removeItem(STATE_KEYS.LAST_CHECK);
     sessionStorage.removeItem(STATE_KEYS.LAST_ERROR);
     clearRetryState();
@@ -1051,23 +1078,9 @@
 
       case 10:
         updateStatusBar(10, 11, 'Schritt 10: Datei per E-Mail versenden...');
-        const docsContainer = document.querySelector('.patient-docs');
-        console.log('[Teemer Optimizer] Step 10: docsContainer found:', !!docsContainer);
-        if (docsContainer) {
-          const docs = Array.from(docsContainer.querySelectorAll('.workflow-item'));
-          console.log(`[Teemer Optimizer] Step 10: Found ${docs.length} documents in container.`);
-          const firstDoc = docs[0];
-          if (firstDoc) {
-            const mailBtn = Array.from(firstDoc.querySelectorAll('.imagefile-label, [title="Datei per E-Mail versenden"]')).find(el => {
-              return el.title === 'Datei per E-Mail versenden' || el.textContent.includes('E-Mail');
-            });
-            console.log('[Teemer Optimizer] Step 10: mailBtn found:', !!mailBtn);
-            if (mailBtn) {
-              console.log('[Teemer Optimizer] Step 10: Clicking E-Mail button.');
-              mailBtn.click();
-              advanceStep(110);
-            }
-          }
+        if (clickMailSendFromFirstDocument()) {
+          sessionStorage.setItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS, '0');
+          advanceStep(110);
         }
         break;
 
@@ -1077,12 +1090,30 @@
           const textElementSelect = document.querySelector('select[name="textElement"]');
 
           if (!favoritesSelect || !textElementSelect) {
-            updateStatusBar(11, 11, 'Schritt 11a: Warte auf E-Mail-Modal...');
+            const waitAttempts = parseInt(sessionStorage.getItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS) || '0', 10) + 1;
+            sessionStorage.setItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS, String(waitAttempts));
+
+            updateStatusBar(11, 11, `Schritt 11a: Warte auf E-Mail-Modal... (${waitAttempts})`);
+
+            // Re-trigger opening occasionally in case the first click hit a non-actionable child element.
+            if (waitAttempts % 8 === 0) {
+              console.log('[Teemer Optimizer] Step 11a: Modal not visible yet, re-triggering E-Mail modal open...');
+              clickMailSendFromFirstDocument();
+            }
+
+            // Fail safely instead of endless looping if the modal cannot be opened.
+            if (waitAttempts >= 80) {
+              stopAutomation(false, 'E-Mail-Modal konnte nicht geöffnet werden. Bitte manuell prüfen.');
+              break;
+            }
+
             // Keep the timeout watchdog alive while Wicket finishes opening/rendering the dialog.
             sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
             setTimeout(executeStep, 250);
             break;
           }
+
+          sessionStorage.setItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS, '0');
 
           updateStatusBar(11, 11, 'Schritt 11a: Favorit/Labor auswählen...');
 
