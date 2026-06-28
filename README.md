@@ -27,6 +27,8 @@ Current scripts include:
 * **Safe Mode Protection**: Includes a checkbox (enabled by default) that redirects final emails to the dev email instead of the laboratory during testing.
 * **Sleek Progress Dashboard**: Renders a premium status overlay showing real-time automation progress (e.g. `Step 5 of 11: Labor auswählen...`) with a **Cancel** safety button.
 
+WARNING: Changes to the Teemer UI may break the script at any time. The script is designed to be resilient, but it may require updates if the underlying HTML structure changes.
+
 ---
 
 ## 📂 Repository Structure

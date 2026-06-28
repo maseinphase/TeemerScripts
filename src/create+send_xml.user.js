@@ -80,7 +80,7 @@
       }
       .tm-header h3 {
         margin: 0;
-        font-size: 1.125rem;
+        font-size: 1.25rem;
         font-weight: 600;
       }
       .tm-close {
@@ -107,16 +107,17 @@
         gap: 6px;
       }
       .tm-field label {
-        font-size: 0.875rem;
+        font-size: 0.95rem;
         font-weight: 600;
         color: #334155;
+        text-align: left;
       }
       .tm-select, .tm-textarea {
         width: 100%;
         padding: 10px 12px;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        font-size: 0.875rem;
+        font-size: 0.95rem;
         background-color: #ffffff;
         color: #0f172a;
         box-sizing: border-box;
@@ -138,7 +139,7 @@
         border: none;
         border-radius: 8px;
         font-weight: 700;
-        font-size: 0.875rem;
+        font-size: 0.95rem;
         cursor: pointer;
         transition: background 0.2s;
         margin-top: 8px;
@@ -760,6 +761,11 @@
       schnellContainer.parentNode.insertBefore(button, schnellContainer);
     } else {
       fieldset.appendChild(button);
+    }
+
+    // Apply native jQuery UI button styling to match other buttons (gray bg, outline, etc.)
+    if (window.jQuery && typeof window.jQuery.fn.button === 'function') {
+      window.jQuery(button).button({ "icon": "", "disabled": false, "showLabel": true });
     }
   }
 
