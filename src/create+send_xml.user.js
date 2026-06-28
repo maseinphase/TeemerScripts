@@ -730,12 +730,22 @@
             break; // Wait for Wicket AJAX to refresh the modal in the next loop cycle
           }
 
-          // 11b. Check if text block choice has "XML" selected.
-          const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
-          if (!textElementText.includes('XML')) {
-            console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
-            selectDropdownOption(textElementSelect, 'XML');
-            break; // Wait for Wicket AJAX to load the text template
+          // 11b. Check if the editor already contains the template text.
+          // If it does, we do not need to select "XML" text block again (avoids Wicket's infinite reload loop).
+          const $editor = window.jQuery('textarea[name="wrapper:message"]');
+          const editor = $editor.data('kendoEditor');
+          const editorText = editor ? editor.value().trim() : '';
+          const hasTemplateText = editorText.length > 0 && 
+                                  (editorText.includes('XML') || editorText.includes('anbei') || editorText.includes('Hallo') || editorText.includes('Patient'));
+
+          if (!hasTemplateText) {
+            // Check if text block choice has "XML" selected.
+            const textElementText = textElementSelect.options[textElementSelect.selectedIndex].text;
+            if (!textElementText.includes('XML')) {
+              console.log('[Teemer Optimizer] Step 11: Selecting text block: XML');
+              selectDropdownOption(textElementSelect, 'XML');
+              break; // Wait for Wicket AJAX to load the text template
+            }
           }
 
           // Mark email processing as started so we don't repeat the configuration logic
