@@ -1160,6 +1160,14 @@
           // Allow Wicket's AJAX handler to complete updating the receiver input, then overwrite it
           const isDevEmailOverride = sessionStorage.getItem(STATE_KEYS.DEV_EMAIL_OVERRIDE) === 'true';
           setTimeout(() => {
+            // Set email subject to "XML"
+            const subjectInput = document.querySelector('input[name="subject"]');
+            if (subjectInput) {
+              subjectInput.value = 'XML';
+              triggerEvents(subjectInput, ['input', 'change']);
+              console.log('[Teemer Optimizer] Email subject set to: XML');
+            }
+
             if (isDevEmailOverride) {
               const receiverInput = document.querySelector('input[name="receiver"]');
               if (receiverInput) {
