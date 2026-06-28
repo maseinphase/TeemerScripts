@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.0.13
+// @version      1.0.14
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -29,6 +29,7 @@
     ORDER_NUMBER: 'tm_xml_order_number',
     PATIENT_NAME: 'tm_xml_patient_name',
     STEP_TIMESTAMP: 'tm_xml_step_timestamp',
+    LAST_EXEC_TS: 'tm_xml_last_exec_ts',
     DEBUG_MODE: 'tm_xml_debug_mode',
     PAUSED: 'tm_xml_paused',
     MANUAL_EMAIL_SEND: 'tm_xml_manual_email_send',
@@ -38,6 +39,9 @@
   };
 
   const STEP_TIMEOUT_MS = 15000; // 15 seconds safety timeout per step
+  const STEP_ADVANCE_DELAY_MS = 600;
+  const RETRY_WAIT_DELAY_MS = 400;
+  const NON_DEBUG_EXEC_THROTTLE_MS = 450;
   const MAX_STEP_RETRIES = 3;
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
@@ -693,6 +697,7 @@
     sessionStorage.removeItem(STATE_KEYS.ORDER_NUMBER);
     sessionStorage.removeItem(STATE_KEYS.PATIENT_NAME);
     sessionStorage.removeItem(STATE_KEYS.STEP_TIMESTAMP);
+    sessionStorage.removeItem(STATE_KEYS.LAST_EXEC_TS);
     sessionStorage.removeItem(STATE_KEYS.DEBUG_MODE);
     sessionStorage.removeItem(STATE_KEYS.PAUSED);
     sessionStorage.removeItem(STATE_KEYS.MANUAL_EMAIL_SEND);
@@ -728,7 +733,7 @@
       updateStatusBar(Math.max(0, displayStep - 1), 11, `Bereit für Schritt ${getDebugStepLabel(nextStep)}.`);
     } else {
       sessionStorage.setItem(STATE_KEYS.PAUSED, 'false');
-      setTimeout(executeStep, 300);
+      setTimeout(executeStep, STEP_ADVANCE_DELAY_MS);
     }
   }
 
@@ -745,6 +750,17 @@
   function executeStep() {
     if (sessionStorage.getItem(STATE_KEYS.ACTIVE) !== 'true') return;
     if (sessionStorage.getItem(STATE_KEYS.PAUSED) === 'true') return; // Do nothing if paused
+    const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
+
+    // In non-debug mode, throttle execution to avoid mutation-trigger storms.
+    if (!isDebugMode) {
+      const now = Date.now();
+      const lastExecTs = parseInt(sessionStorage.getItem(STATE_KEYS.LAST_EXEC_TS) || '0', 10);
+      if (lastExecTs > 0 && (now - lastExecTs) < NON_DEBUG_EXEC_THROTTLE_MS) {
+        return;
+      }
+      sessionStorage.setItem(STATE_KEYS.LAST_EXEC_TS, String(now));
+    }
     
     // If Wicket's AJAX indicator is active/visible, wait for the request to complete
     const wicketIndicator = document.getElementById('wicket-ajax-indicator');
@@ -764,7 +780,6 @@
     const labValue = sessionStorage.getItem(STATE_KEYS.LAB_VALUE);
     const description = sessionStorage.getItem(STATE_KEYS.DESCRIPTION);
     const patientName = sessionStorage.getItem(STATE_KEYS.PATIENT_NAME);
-    const isDebugMode = sessionStorage.getItem(STATE_KEYS.DEBUG_MODE) === 'true';
 
     console.log(`[Teemer Optimizer] Executing Step ${step}...`);
 
@@ -948,7 +963,7 @@
           }
           if (!selectedLabEl) {
             console.log('[Teemer Optimizer] Step 5b: no lab select found yet, waiting for dialog to settle...');
-            setTimeout(executeStep, 250);
+            setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
             break;
           }
 
@@ -957,7 +972,7 @@
           if (!isLabNameMatch(selectedText, labName) || (visibleText && !isLabNameMatch(visibleText, labName))) {
             console.log(`[Teemer Optimizer] Step 5b: labor not settled yet. Hidden: "${selectedText || '-'}", Visible: "${visibleText || '-'}", expected: "${labName}". Retrying...`);
             sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
-            setTimeout(executeStep, 250);
+            setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
             break;
           }
 
@@ -1080,7 +1095,7 @@
         updateStatusBar(10, 11, 'Schritt 10: Datei per E-Mail versenden...');
         if (clickMailSendFromFirstDocument()) {
           sessionStorage.setItem(STATE_KEYS.MAIL_MODAL_WAIT_ATTEMPTS, '0');
-          advanceStep(110);
+          setTimeout(() => advanceStep(110), STEP_ADVANCE_DELAY_MS);
         }
         break;
 
@@ -1109,7 +1124,7 @@
 
             // Keep the timeout watchdog alive while Wicket finishes opening/rendering the dialog.
             sessionStorage.setItem(STATE_KEYS.STEP_TIMESTAMP, String(Date.now()));
-            setTimeout(executeStep, 250);
+            setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
             break;
           }
 
