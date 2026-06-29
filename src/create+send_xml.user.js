@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -28,6 +28,7 @@
   const DOM_SETTLE_DELAY_MS = 120;
   const NON_DEBUG_EXEC_THROTTLE_MS = 450;
   const MAX_STEP_RETRIES = 3;
+  const TOTAL_STEPS = 16;
 
   let scheduledTickHandle = null;
   let domObserver = null;
@@ -310,9 +311,10 @@
   }
 
   // --- STEP HANDLERS (ACTION-VALIDATION CYCLE) ---
+  // Steps are numbered sequentially 1–16 in execution order.
   const STEP_HANDLERS = {
     1: {
-      desc: 'Schritt 1: "Plan beauftragen" wird geklickt...',
+      desc: 'Schritt 1/16: "Plan beauftragen" klicken...',
       failMessage: 'Button "Plan beauftragen" wurde nicht gefunden.',
       run: () => {
         const btn = findElementByText('a.treatment-action', 'Plan beauftragen');
@@ -322,7 +324,7 @@
       next: 2
     },
     2: {
-      desc: 'Schritt 2: Planungsdetails ausfüllen...',
+      desc: 'Schritt 2/16: Planungsdetails ausfüllen...',
       failMessage: 'Planungsformular wurde nicht gefunden.',
       run: (state) => {
         const form = document.querySelector('form.planDetails');
@@ -345,29 +347,29 @@
         const desc = form.querySelector('textarea[name="description"]');
         return radio && radio.checked && desc && desc.value === state.description;
       },
-      next: 21
+      next: 3
     },
-    21: {
-      desc: 'Schritt 2c: "Erstellen" im Plan-Modal klicken...',
+    3: {
+      desc: 'Schritt 3/16: "Erstellen" im Plan-Modal klicken...',
       failMessage: 'Planungsmodal konnte nicht geschlossen werden.',
       run: () => {
         clickDialogButton('Plan beauftragen', 'Erstellen');
       },
       validate: () => !isDialogVisible('Plan beauftragen'),
-      next: 20
+      next: 4
     },
-    20: {
-      desc: 'Schritt 2d: Navigiere zur Planung...',
+    4: {
+      desc: 'Schritt 4/16: Navigiere zur Planung...',
       failMessage: 'Navigations-Button "Zur Planung" nicht gefunden.',
       run: () => {
         const btn = findElementByText('a.treatment-action', 'Zur Planung');
         if (btn) btn.click();
       },
       validate: () => !!findElementByText('.nubo-light-widget .title', 'Beauftragt / In Bearbeitung'),
-      next: 3
+      next: 5
     },
-    3: {
-      desc: 'Schritt 3: Plan in Bearbeitungsliste identifizieren...',
+    5: {
+      desc: 'Schritt 5/16: Plan in Bearbeitungsliste identifizieren...',
       failMessage: 'Erstellter Plan in Bearbeitungsliste nicht gefunden.',
       run: (state) => {
         const column = Array.from(document.querySelectorAll('.nubo-light-widget')).find(w => {
@@ -383,20 +385,20 @@
         }
       },
       validate: () => !!findElementByText('.nubo-button', 'Laborauftrag erstellen'),
-      next: 4
+      next: 6
     },
-    4: {
-      desc: 'Schritt 4: Laborauftrag erstellen...',
+    6: {
+      desc: 'Schritt 6/16: Laborauftrag erstellen...',
       failMessage: 'Button "Laborauftrag erstellen" nicht gefunden.',
       run: () => {
         const btn = findElementByText('.nubo-button', 'Laborauftrag erstellen');
         if (btn) btn.click();
       },
       validate: () => isDialogVisible('Laborauftrag erstellen'),
-      next: 50
+      next: 7
     },
-    50: {
-      desc: 'Schritt 5a: Labor auswählen...',
+    7: {
+      desc: 'Schritt 7/16: Labor auswählen...',
       failMessage: 'Labor konnte im Dropdown nicht ausgewählt werden.',
       run: (state) => {
         const dialog = findDialogByTitle('Laborauftrag erstellen');
@@ -411,19 +413,19 @@
         const visible = getSelectmenuVisibleText(select);
         return isLabNameMatch(text, state.labName) && (!visible || isLabNameMatch(visible, state.labName));
       },
-      next: 51
+      next: 8
     },
-    51: {
-      desc: 'Schritt 5b: "Erstellen" im Laborauftrag-Modal klicken...',
+    8: {
+      desc: 'Schritt 8/16: "Erstellen" im Laborauftrag-Modal klicken...',
       failMessage: 'Laborauftrags-Modal konnte nicht geschlossen werden.',
       run: () => {
         clickDialogButton('Laborauftrag erstellen', 'Erstellen');
       },
       validate: () => !isDialogVisible('Laborauftrag erstellen'),
-      next: 6
+      next: 9
     },
-    6: {
-      desc: 'Schritt 6: Erstellten Laborauftrag öffnen...',
+    9: {
+      desc: 'Schritt 9/16: Erstellten Laborauftrag öffnen...',
       failMessage: 'Link zum erstellten Laborauftrag nicht gefunden.',
       run: (state) => {
         let link = null;
@@ -440,10 +442,10 @@
         if (link) link.click();
       },
       validate: () => !!findElementByText('a', 'Beauftragen'),
-      next: 7
+      next: 10
     },
-    7: {
-      desc: 'Schritt 7: Laborauftrag beauftragen...',
+    10: {
+      desc: 'Schritt 10/16: Laborauftrag beauftragen...',
       failMessage: 'Button "Beauftragen" nicht gefunden.',
       run: () => {
         const btn = findElementByText('a', 'Beauftragen');
@@ -455,10 +457,10 @@
         const orderNum = th.nextElementSibling.textContent.trim();
         return /^[A-Za-z0-9\-/.]{4,}$/.test(orderNum);
       },
-      next: 8
+      next: 11
     },
-    8: {
-      desc: 'Schritt 8: Auftragsnummer extrahieren...',
+    11: {
+      desc: 'Schritt 11/16: Auftragsnummer extrahieren...',
       failMessage: 'Auftragsnummer fehlt oder Rücknavigation fehlgeschlagen.',
       run: () => {
         const th = findElementByText('th', 'Auftragsnummer');
@@ -476,10 +478,10 @@
         const state = State.get();
         return !!state.orderNumber && !!document.querySelector('.patient-docs, input[name*="mediaRadio"]');
       },
-      next: 9
+      next: 12
     },
-    9: {
-      desc: 'Schritt 9: Dokumentenfilter "PDF" aktivieren...',
+    12: {
+      desc: 'Schritt 12/16: Dokumentenfilter "PDF" aktivieren...',
       failMessage: 'PDF Dokumentenfilter konnte nicht aktiviert werden.',
       run: () => {
         const input = document.querySelector('input[name*="mediaRadio"][value="DOCUMENTS"]');
@@ -495,19 +497,19 @@
         const input = document.querySelector('input[name*="mediaRadio"][value="DOCUMENTS"]');
         return input ? input.checked : true;
       },
-      next: 10
+      next: 13
     },
-    10: {
-      desc: 'Schritt 10: Datei per E-Mail versenden...',
+    13: {
+      desc: 'Schritt 13/16: Datei per E-Mail versenden...',
       failMessage: 'E-Mail-Modal konnte nicht geöffnet werden.',
       run: () => {
         clickMailSendFromFirstDocument();
       },
       validate: () => document.querySelector('select[name*="mailFavoritesChoice"]') !== null,
-      next: 110
+      next: 14
     },
-    110: {
-      desc: 'Schritt 11a: Favorit/Labor auswählen...',
+    14: {
+      desc: 'Schritt 14/16: Favorit/Labor auswählen...',
       failMessage: 'E-Mail Favorit (Labor) konnte nicht ausgewählt werden.',
       run: (state) => {
         const select = document.querySelector('select[name*="mailFavoritesChoice"]');
@@ -518,20 +520,20 @@
         if (!select) return false;
         return isLabNameMatch(getSelectedOptionText(select), state.labName);
       },
-      next: 111
+      next: 15
     },
-    111: {
-      desc: 'Schritt 11b: E-Mail-Editor vorbereiten...',
+    15: {
+      desc: 'Schritt 15/16: E-Mail-Editor vorbereiten...',
       failMessage: 'Kendo E-Mail-Editor wurde nicht geladen.',
       run: () => {},
       validate: () => {
         const $editor = window.jQuery('textarea[name="wrapper:message"]');
         return !!$editor.data('kendoEditor');
       },
-      next: 112
+      next: 16
     },
-    112: {
-      desc: 'Schritt 11c-11e: Anhänge, Auftragsnummer, Versenden...',
+    16: {
+      desc: 'Schritt 16/16: Anhänge, Auftragsnummer, Versenden...',
       failMessage: 'Editor-Update oder Versand fehlgeschlagen.',
       terminal: true,
       run: (state) => {
@@ -576,17 +578,6 @@
   };
 
   // --- AUTOMATION ENGINE CORE ---
-  function getDisplayStep(step) {
-    if (step === 20 || step === 21) return 2;
-    if (step === 50 || step === 51) return 5;
-    if (step >= 110 && step <= 112) return 11;
-    return step;
-  }
-
-  function getDebugStepLabel(step) {
-    const labels = { 20: '2d', 21: '2c', 50: '5a', 51: '5b', 110: '11a', 111: '11b', 112: '11c-11e' };
-    return labels[step] || String(step);
-  }
 
   function updateStatusBar(step, totalSteps, msg) {
     let bar = document.getElementById(STATUS_BAR_ID);
@@ -630,10 +621,10 @@
     const bar = document.getElementById(STATUS_BAR_ID);
     if (bar) {
       if (isSuccess) {
-        updateStatusBar(11, 11, 'Erfolgreich abgeschlossen!');
+        updateStatusBar(TOTAL_STEPS, TOTAL_STEPS, 'Erfolgreich abgeschlossen!');
         setTimeout(() => { bar.remove(); }, 3000);
       } else {
-        updateStatusBar(0, 11, errorMsg || 'Abgebrochen.');
+        updateStatusBar(0, TOTAL_STEPS, errorMsg || 'Abgebrochen.');
         const cancelBtn = bar.querySelector('.tm-status-cancel');
         if (cancelBtn) cancelBtn.textContent = 'Schließen';
       }
@@ -648,12 +639,12 @@
       stepTimestamp: Date.now(),
       retryCount: 0
     });
-    log(`Advancing to Step ${getDebugStepLabel(nextStep)}`);
+    log(`Advancing to Step ${nextStep}`);
 
     const state = State.get();
     if (state.debugMode) {
       State.update({ paused: true });
-      updateStatusBar(Math.max(0, getDisplayStep(nextStep) - 1), 11, `Bereit für Schritt ${getDebugStepLabel(nextStep)}.`);
+      updateStatusBar(Math.max(0, nextStep - 1), TOTAL_STEPS, `Bereit für Schritt ${nextStep}.`);
     } else {
       State.update({ paused: false });
       setTimeout(executeStep, STEP_ADVANCE_DELAY_MS);
@@ -693,7 +684,7 @@
     // Single state write for this tick's bookkeeping
     State.update({ lastExecTs: now });
 
-    updateStatusBar(getDisplayStep(state.step), 11, handler.desc);
+    updateStatusBar(state.step, TOTAL_STEPS, handler.desc);
 
     try {
       // 1. Run action (non-blocking)
@@ -713,10 +704,10 @@
         } else {
           const retries = (validatedState.retryCount || 0) + 1;
           if (retries >= MAX_STEP_RETRIES) {
-            stopAutomation(false, `Schritt ${getDebugStepLabel(validatedState.step)} fehlgeschlagen: ${handler.failMessage}`);
+            stopAutomation(false, `Schritt ${validatedState.step} fehlgeschlagen: ${handler.failMessage}`);
           } else {
             State.update({ retryCount: retries, stepTimestamp: Date.now() });
-            updateStatusBar(getDisplayStep(validatedState.step), 11, `Check fehlgeschlagen. Wiederhole... (${retries}/${MAX_STEP_RETRIES})`);
+            updateStatusBar(validatedState.step, TOTAL_STEPS, `Check fehlgeschlagen. Wiederhole... (${retries}/${MAX_STEP_RETRIES})`);
             
             if (validatedState.debugMode) {
               State.update({ paused: true });
@@ -828,7 +819,7 @@
 
       close();
       createStatusBar();
-      updateStatusBar(1, 11, 'Starte XML Workflow-Automatisierung...');
+      updateStatusBar(1, TOTAL_STEPS, 'Starte XML Workflow-Automatisierung...');
       setTimeout(executeStep, 500);
     });
 
@@ -912,11 +903,10 @@
       let bar = document.getElementById(STATUS_BAR_ID);
       if (!bar) {
         createStatusBar();
-        const disp = getDisplayStep(state.step);
         if (state.paused) {
-          updateStatusBar(disp - 1, 11, `Bereit für Schritt ${getDebugStepLabel(state.step)}.`);
+          updateStatusBar(state.step - 1, TOTAL_STEPS, `Bereit für Schritt ${state.step}.`);
         } else {
-          updateStatusBar(disp - 1, 11, 'Warte auf nächsten Schritt...');
+          updateStatusBar(state.step - 1, TOTAL_STEPS, 'Warte auf nächsten Schritt...');
         }
       }
       executeStep();
