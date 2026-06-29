@@ -21,6 +21,7 @@
   const STATE_KEY = 'tm_xml_state';
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
+  const VERSION = '1.1.2';
 
   const STEP_TIMEOUT_MS = 15000;
   const STEP_ADVANCE_DELAY_MS = 600;
@@ -733,7 +734,7 @@
     modal.innerHTML = `
       <div class="ui-dialog ui-corner-all ui-widget ui-widget-content ui-front wicket-modal ui-dialog-buttons" role="dialog" aria-modal="true" aria-labelledby="tm-dialog-title">
         <div class="ui-dialog-titlebar ui-corner-all ui-widget-header ui-helper-clearfix">
-          <span class="ui-dialog-title" id="tm-dialog-title">XML Daten eingeben</span>
+          <span class="ui-dialog-title" id="tm-dialog-title">XML Daten eingeben <span style="font-size: 0.75rem; font-weight: normal; opacity: 0.65; margin-left: 6px;">v${VERSION}</span></span>
           <button type="button" class="ui-button ui-corner-all ui-icon-only ui-dialog-titlebar-close" title="Schließen" aria-label="Schließen">
             <span class="ui-button-icon ui-icon ui-icon-closethick"></span>
           </button>
