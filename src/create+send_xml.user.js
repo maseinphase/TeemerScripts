@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Teemer Workflow Optimizer - XML Versenden
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Automates plan creation, laboratory orders, order ID extraction, and emailing XML numbers in Teemer.
 // @author       Marco Seeland
 // @match        https://*.teemer.de/*
@@ -21,7 +21,7 @@
   const STATE_KEY = 'tm_xml_state';
   const MODAL_ID = 'tm-xml-modal';
   const STATUS_BAR_ID = 'tm-xml-status-bar';
-  const VERSION = '1.1.2';
+  const VERSION = '1.1.3';
 
   const STEP_TIMEOUT_MS = 15000;
   const STEP_ADVANCE_DELAY_MS = 600;
@@ -30,10 +30,13 @@
   const NON_DEBUG_EXEC_THROTTLE_MS = 450;
   const MAX_STEP_RETRIES = 3;
   const TOTAL_STEPS = 16;
+  const ACTIVE_VALIDATION_DELAY_MS = 3000;
 
   let scheduledTickHandle = null;
   let domObserver = null;
   let cachedDebugMode = false;
+  let activeValidationScheduled = false;
+  let isPageLoad = true;
 
   // --- STYLING ---
   function injectStyles() {
@@ -634,12 +637,56 @@
     State.clear();
   }
 
+  function runValidationAttempt(isPassive = false) {
+    const validatedState = State.get();
+    if (!validatedState.active || validatedState.paused) return;
+
+    const handler = STEP_HANDLERS[validatedState.step];
+    if (!handler) return;
+
+    try {
+      if (handler.validate(validatedState)) {
+        if (handler.terminal) {
+          stopAutomation(true);
+        } else if (handler.next) {
+          advanceStep(handler.next);
+        }
+      } else if (!isPassive) {
+        const retries = (validatedState.retryCount || 0) + 1;
+        if (retries >= MAX_STEP_RETRIES) {
+          stopAutomation(false, `Schritt ${validatedState.step} fehlgeschlagen: ${handler.failMessage}`);
+        } else {
+          State.update({
+            retryCount: retries,
+            actionRun: false,
+            stepTimestamp: Date.now()
+          });
+          activeValidationScheduled = false;
+          if (validatedState.debugMode) {
+            State.update({ paused: true });
+          }
+          updateStatusBar(validatedState.step, TOTAL_STEPS, `Check fehlgeschlagen. Wiederhole... (${retries}/${MAX_STEP_RETRIES})`);
+          if (!validatedState.debugMode) {
+            setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
+          }
+        }
+      }
+    } catch (e) {
+      logWarn(`Exception in step ${validatedState.step} validate`, e);
+      if (!isPassive) {
+        stopAutomation(false, `Unerwarteter Fehler bei Validierung: ${e.message}`);
+      }
+    }
+  }
+
   function advanceStep(nextStep) {
     State.update({
       step: nextStep,
       stepTimestamp: Date.now(),
-      retryCount: 0
+      retryCount: 0,
+      actionRun: false
     });
+    activeValidationScheduled = false;
     log(`Advancing to Step ${nextStep}`);
 
     const state = State.get();
@@ -657,11 +704,6 @@
     if (!state.active || state.paused) return;
 
     const now = Date.now();
-
-    if (!state.debugMode) {
-      const last = state.lastExecTs || 0;
-      if (now - last < NON_DEBUG_EXEC_THROTTLE_MS) return;
-    }
 
     const wicketIndicator = document.getElementById('wicket-ajax-indicator');
     if (wicketIndicator && wicketIndicator.style.display !== 'none') {
@@ -682,46 +724,48 @@
       return;
     }
 
-    // Single state write for this tick's bookkeeping
-    State.update({ lastExecTs: now });
+    if (!state.actionRun) {
+      const requiredDelay = (state.retryCount > 0) ? RETRY_WAIT_DELAY_MS : (state.step > 1 ? STEP_ADVANCE_DELAY_MS : 0);
+      if (!isPageLoad && state.stepTimestamp && (now - state.stepTimestamp) < requiredDelay) {
+        return;
+      }
 
-    updateStatusBar(state.step, TOTAL_STEPS, handler.desc);
+      isPageLoad = false;
+      log(`Running action for Step ${state.step} (attempt ${state.retryCount || 0})`);
+      State.update({ actionRun: true, lastExecTs: now });
 
-    try {
-      // 1. Run action (non-blocking)
-      handler.run(state);
+      updateStatusBar(state.step, TOTAL_STEPS, handler.desc);
 
-      // 2. Validate after DOM settles
+      try {
+        handler.run(state);
+      } catch (e) {
+        logWarn(`Exception in step ${state.step} run`, e);
+        stopAutomation(false, `Unerwarteter Fehler: ${e.message}`);
+        return;
+      }
+
+      // Schedule a quick passive check in case the DOM doesn't trigger mutations
       setTimeout(() => {
-        const validatedState = State.get();
-        if (!validatedState.active || validatedState.paused) return;
-
-        if (handler.validate(validatedState)) {
-          if (handler.terminal) {
-            stopAutomation(true);
-          } else if (handler.next) {
-            advanceStep(handler.next);
-          }
-        } else {
-          const retries = (validatedState.retryCount || 0) + 1;
-          if (retries >= MAX_STEP_RETRIES) {
-            stopAutomation(false, `Schritt ${validatedState.step} fehlgeschlagen: ${handler.failMessage}`);
-          } else {
-            State.update({ retryCount: retries, stepTimestamp: Date.now() });
-            updateStatusBar(validatedState.step, TOTAL_STEPS, `Check fehlgeschlagen. Wiederhole... (${retries}/${MAX_STEP_RETRIES})`);
-            
-            if (validatedState.debugMode) {
-              State.update({ paused: true });
-            } else {
-              setTimeout(executeStep, RETRY_WAIT_DELAY_MS);
-            }
-          }
-        }
+        runValidationAttempt(true);
       }, DOM_SETTLE_DELAY_MS);
-      
-    } catch (e) {
-      logWarn(`Exception in step ${state.step}`, e);
-      stopAutomation(false, `Unerwarteter Fehler: ${e.message}`);
+
+      // Schedule the active validation timeout
+      activeValidationScheduled = true;
+      setTimeout(() => {
+        activeValidationScheduled = false;
+        runValidationAttempt(false);
+      }, ACTIVE_VALIDATION_DELAY_MS);
+
+    } else {
+      runValidationAttempt(true);
+      if (!activeValidationScheduled) {
+        activeValidationScheduled = true;
+        setTimeout(() => {
+          activeValidationScheduled = false;
+          runValidationAttempt(false);
+        }, ACTIVE_VALIDATION_DELAY_MS);
+      }
+      isPageLoad = false;
     }
   }
 
@@ -815,8 +859,10 @@
         manualEmailSend: manual,
         paused: false,
         stepTimestamp: Date.now(),
-        retryCount: 0
+        retryCount: 0,
+        actionRun: false
       });
+      activeValidationScheduled = false;
 
       close();
       createStatusBar();
@@ -945,6 +991,9 @@
     const state = State.get();
     if (state.active) {
       createStatusBar();
+      if (state.paused) {
+        updateStatusBar(Math.max(0, state.step - 1), TOTAL_STEPS, `Bereit für Schritt ${state.step}.`);
+      }
       executeStep();
     }
     runAutomationTick();
